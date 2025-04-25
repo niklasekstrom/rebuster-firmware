@@ -6,3 +6,6 @@ The timings of a regular Buster chip is documented here.
 
 Trace with four reads followed by four writes to a FastlaneZ3 Zorro-III board:
 [buster-07/z3-multi-read-multi-write.vcd](https://vc.drom.io/?github=niklasekstrom/rebuster-firmware/main/docs/traces/buster-07/z3-multi-read-multi-write.vcd)
+
+Trace with four reads followed by four writes to a Zorrology Zorro-II board:
+[buster-07/z2-multi-read-multi-write.vcd](https://vc.drom.io/?github=niklasekstrom/rebuster-firmware/main/docs/traces/buster-07/z2-multi-read-multi-write.vcd)
