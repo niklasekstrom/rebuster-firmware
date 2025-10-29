@@ -54,11 +54,17 @@ module rebuster_top(
     inout [3:1] EA,         // Zx Low address bits / Z3 LOCK_n
     inout READ,             // Zx Read/Write
     inout FCS_n,            // Z3 Full Cycle Strobe
+    inout CCS_n,            // Z2 Compatibility Cycle Strobe
     inout DOE,              // Zx Data Output Enable
     inout [3:0] EDS_n,      // Zx Data Strobes
 
     inout DTACK_n,          // Zx Data Acknowledge
     inout CINH_n,           // Z3 Cache Inhibit / Z2 OVR_n
+
+    // Multiple Transfer Cycle handshake
+    // Bus master asserts MTCR, bus slave responds on MTACK
+    input MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
+    //input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
 
     // -- Bus arbitration --
 
@@ -192,6 +198,12 @@ wire fcs_n_oe;
 assign fcs_n_in = FCS_n;
 assign FCS_n = fcs_n_oe ? fcs_n_out : 1'bz;
 
+wire ccs_n_in;
+wire ccs_n_out;
+wire ccs_n_oe;
+assign ccs_n_in = CCS_n;
+assign CCS_n = ccs_n_oe ? ccs_n_out : 1'bz;
+
 wire doe_in;
 wire doe_out;
 wire doe_oe;
@@ -218,6 +230,9 @@ wire cinh_n_out;
 wire cinh_n_oe;
 assign cinh_n_in = CINH_n;
 assign CINH_n = cinh_n_oe ? cinh_n_out : 1'bz;
+
+wire mtcr_n_in;
+assign mtcr_n_in = MTCR_n;
 
 wire br_n_out;
 wire br_n_oe;
@@ -362,6 +377,10 @@ rebuster_core core(
     .fcs_n_out(fcs_n_out),
     .fcs_n_oe(fcs_n_oe),
 
+    .ccs_n_in(ccs_n_in),
+    .ccs_n_out(ccs_n_out),
+    .ccs_n_oe(ccs_n_oe),
+
     .doe_in(doe_in),
     .doe_out(doe_out),
     .doe_oe(doe_oe),
@@ -377,6 +396,8 @@ rebuster_core core(
     .cinh_n_in(cinh_n_in),
     .cinh_n_out(cinh_n_out),
     .cinh_n_oe(cinh_n_oe),
+
+    .mtcr_n_in(mtcr_n_in),
 
     .br_n_out(br_n_out),
     .br_n_oe(br_n_oe),

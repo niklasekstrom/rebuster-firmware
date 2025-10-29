@@ -73,6 +73,10 @@ module rebuster_core(
     output reg fcs_n_out,
     output reg fcs_n_oe,
 
+    input ccs_n_in,
+    output reg ccs_n_out,
+    output reg ccs_n_oe,
+
     input doe_in,
     output reg doe_out,
     output reg doe_oe,
@@ -88,6 +92,8 @@ module rebuster_core(
     input cinh_n_in,
     output reg cinh_n_out,
     output reg cinh_n_oe,
+
+    input mtcr_n_in,
 
     output reg br_n_out,
     output reg br_n_oe,
@@ -119,6 +125,10 @@ Notes:
 - No handling of Read-Modify-Write cycles (RMC/LOCK) yet.
 */
 
+// Signals with dual uses.
+wire ovr_n_in = cinh_n_in;
+wire xrdy_in = mtcr_n_in;
+
 reg [2:0] reset_n_sync;
 reg [2:0] dtack_n_sync;
 reg [2:0] fcs_n_sync;
@@ -147,6 +157,7 @@ always @(posedge clk100) begin
     ebr_n_sync_0 <= ebr_n_in;
 end
 
+wire c7m_rising = c7m_sync[2:1] == 2'b01;
 wire c7m_falling = c7m_sync[2:1] == 2'b10;
 
 localparam DIR_CPU_TO_ZORRO = 1'b0;
@@ -204,6 +215,20 @@ always @(*) begin
     endcase
 end
 
+reg [3:0] next_z2_eds_n;
+
+always @(*) begin
+    if (!a_in[0]) begin // Even address.
+        if (siz_in == 2'd1) begin
+            next_z2_eds_n <= 4'b0111;
+        end else begin
+            next_z2_eds_n <= 4'b0011;
+        end
+    end else begin // Odd address.
+        next_z2_eds_n <= 4'b1011;
+    end
+end
+
 reg [1:0] next_z3_a;
 reg [1:0] next_z3_siz;
 
@@ -249,6 +274,9 @@ end
 
 reg [2:0] cpu_to_z3_state;
 reg [2:0] z3_to_cpu_state;
+
+reg [2:0] cpu_to_z2_state;
+reg [2:0] z2_state;
 
 reg [2:0] address_decode_stable;
 
@@ -344,6 +372,9 @@ always @(posedge clk100) begin
         fcs_n_out <= 1'b1;
         fcs_n_oe <= 1'b0;
 
+        ccs_n_out <= 1'b1;
+        ccs_n_oe <= 1'b0;
+
         doe_out <= 1'b0;
         doe_oe <= 1'b0;
 
@@ -384,6 +415,9 @@ always @(posedge clk100) begin
         z3_registered <= 5'b0;
         z3_grant <= 5'b0;
 
+        cpu_to_z2_state <= 3'd0;
+        z2_state <= 3'd0;
+
     end else if (!reset_n_sync[2]) begin // Coming out of reset.
 
         // When coming out of reset, the fpga should start driving towards Z3,
@@ -403,6 +437,9 @@ always @(posedge clk100) begin
 
         fcs_n_out <= 1'b1;
         fcs_n_oe <= 1'b1;
+
+        ccs_n_out <= 1'b1;
+        ccs_n_oe <= 1'b1;
 
         dboe_n_out <= 2'b11;
         dboe_n_oe <= 2'b11;
@@ -461,6 +498,7 @@ always @(posedge clk100) begin
                             read_oe <= 1'b0;
                             doe_oe <= 1'b0;
                             fcs_n_oe <= 1'b0;
+                            ccs_n_oe <= 1'b0;
                             eds_n_oe <= 4'b0000;
 
                             // Start driving towards the CPU bus.
@@ -518,6 +556,7 @@ always @(posedge clk100) begin
                             read_oe <= 1'b1;
                             doe_oe <= 1'b1;
                             fcs_n_oe <= 1'b1;
+                            ccs_n_oe <= 1'b1;
                             eds_n_oe <= 4'b1111;
 
                             // Stop driving towards the CPU bus.
@@ -571,6 +610,7 @@ always @(posedge clk100) begin
                             fcs_n_out <= 1'b0;
                             access_state <= ACCESS_CPU_TO_Z3;
                         end else if (!memz2_n_in || !ioz2_n_in) begin
+                            fcs_n_out <= 1'b0;
                             access_state <= ACCESS_CPU_TO_Z2;
                         end else begin
                             access_state <= ACCESS_CPU_TO_OTHER;
@@ -588,18 +628,6 @@ always @(posedge clk100) begin
             ACCESS_CPU_TO_OTHER: begin
                 if (cpuclk_rising && as_n_in) begin
                     access_state <= ACCESS_IDLE;
-                end
-            end
-
-            ACCESS_CPU_TO_Z2: begin
-                if (cpuclk_rising && as_n_in) begin
-                    dsack_n_out <= 2'b11;
-                    dsack_n_oe <= 2'b00;
-
-                    access_state <= ACCESS_IDLE;
-                end else begin
-                    dsack_n_out <= 2'b01; // 16 bit port.
-                    dsack_n_oe <= 2'b11;
                 end
             end
 
@@ -765,6 +793,159 @@ always @(posedge clk100) begin
                     end
                 endcase
             end
+
+            ACCESS_CPU_TO_Z2: begin
+                case (cpu_to_z2_state)
+                    3'd0: begin
+                        if (cpuclk_rising) begin
+                            ea_out <= a_in[3:1];
+
+                            // Stop driving EAD[31:24].
+                            aboe_n_out <= 3'b100;
+
+                            dblt_out <= rw_in;
+
+                            ciin_n_out <= ioz2_n_in;
+
+                            cpu_to_z2_state <= 3'd1;
+                        end
+                    end
+                    3'd1: begin
+                        if (cpuclk_falling) begin
+                            if (!ciin_n_out) begin
+                                ciin_n_oe <= 1'b1;
+                            end
+
+                            // The address has now been stable for 20 ns.
+                            cpu_to_z2_state <= 3'd2;
+                        end
+                    end
+                    3'd2: begin
+                        if (z2_state == 3'd6 && c7m_falling) begin
+                            cpu_to_z2_state <= 3'd3;
+                        end
+                    end
+                    3'd3: begin
+                        if (cpuclk_rising) begin
+                            dsack_n_out <= 2'b01;
+                            dsack_n_oe <= 2'b11;
+
+                            cpu_to_z2_state <= 3'd4;
+                        end
+                    end
+                    3'd4: begin
+                        if (cpuclk_rising && as_n_in) begin
+                            fcs_n_out <= 1'b1;
+
+                            aboe_n_out <= 3'b110;
+                            dboe_n_out <= 2'b11;
+
+                            dblt_out <= 1'b0;
+
+                            // Negate DSACK_n/CIIN_n.
+                            dsack_n_out <= 2'b11;
+                            ciin_n_out <= 1'b1;
+
+                            cpu_to_z2_state <= 3'd5;
+                        end
+                    end
+                    3'd5: begin
+                        if (cpuclk_falling) begin
+                            // Stop driving DSACK_n/CIIN_n.
+                            dsack_n_oe <= 2'b00;
+                            ciin_n_oe <= 1'b0;
+
+                            cpu_to_z2_state <= 3'd6;
+                        end
+                    end
+                    3'd6: begin
+                        if (cpuclk_falling) begin
+                            aboe_n_out <= 3'b000;
+
+                            cpu_to_z2_state <= 3'd0;
+
+                            access_state <= ACCESS_IDLE;
+                        end
+                    end
+                endcase
+
+                case (z2_state)
+                    3'd0: begin
+                        if (cpu_to_z2_state == 3'd1 && cpuclk_falling) begin
+                            // The address has now been stable for 20 ns.
+                            z2_state <= 3'd1;
+                        end
+                    end
+                    3'd1: begin
+                        if (c7m_rising) begin
+                            ccs_n_out <= 1'b0;
+
+                            if (rw_in)
+                                eds_n_out <= next_z2_eds_n;
+
+                            if (!rw_in)
+                                dboe_n_out <= 2'b01;
+
+                            z2_state <= 3'd2;
+                        end
+                    end
+                    3'd2: begin
+                        if (c7m_falling) begin
+                            z2_state <= 3'd3;
+                        end
+                    end
+                    3'd3: begin
+                        if (c7m_rising) begin
+                            if (!rw_in)
+                                eds_n_out <= next_z2_eds_n;
+
+                            if (rw_in)
+                                dboe_n_out <= 2'b01;
+
+                            doe_out <= 1'b1;
+
+                            if (xrdy_in && ovr_n_in) begin
+                                dtack_n_out <= 1'b0;
+                                dtack_n_oe <= 1'b1;
+                            end
+
+                            z2_state <= 3'd4;
+                        end
+                    end
+                    3'd4: begin
+                        if (c7m_falling) begin
+                            if (!dtack_n_sync[1])
+                                z2_state <= 3'd5;
+                            else
+                                z2_state <= 3'd3;
+                        end
+                    end
+                    3'd5: begin
+                        if (c7m_rising) begin
+                            z2_state <= 3'd6;
+                        end
+                    end
+                    3'd6: begin
+                        if (c7m_falling) begin
+                            ccs_n_out <= 1'b1;
+
+                            eds_n_out <= 4'b1111;
+
+                            dtack_n_oe <= 1'b0;
+
+                            z2_state <= 3'd7;
+                        end
+                    end
+                    3'd7: begin
+                        if (c7m_rising) begin
+                            doe_out <= 1'b0;
+
+                            z2_state <= 3'd0;
+                        end
+                    end
+                endcase
+            end
+
         endcase
     end
 end
