@@ -4,7 +4,6 @@ module rebuster_core(
     input cpuclk_rising,
     input cpuclk_falling,
 
-    input cpuclk_in,
     input c7m_in,
 
     input reset_n_in,
@@ -22,6 +21,9 @@ module rebuster_core(
 
     output reg [1:0] dboe_n_out,
     output reg [1:0] dboe_n_oe,
+
+    output reg db16_n_out,
+    output reg db16_n_oe,
 
     output reg d2p_n_out,
     output reg d2p_n_oe,
@@ -60,6 +62,9 @@ module rebuster_core(
     input ciin_n_in,
     output reg ciin_n_out,
     output reg ciin_n_oe,
+
+    output reg bigz_n_out,
+    output reg bigz_n_oe,
 
     input [3:1] ea_in,
     output reg [3:1] ea_out,
@@ -112,106 +117,93 @@ module rebuster_core(
     input [4:0] ebr_n_in,
 
     output reg [4:0] ebg_n_out,
-    output reg [4:0] ebg_n_oe
+    output reg [4:0] ebg_n_oe,
+
+    input ebgack_n_in
 );
 
 /*
 Notes:
-
-- Doesn't handle EBCLR_n yet. The pin is likely not used by any Z2 or Z3 boards.
-- Doesn't handle Multiple Transfer Cycles yet.
-- No handling of bus error (BERR/BINT) yet.
-- No handling of slave collisions (SLAVE) yet.
-- No handling of Read-Modify-Write cycles (RMC/LOCK) yet.
+- Doesn't handle EBCLR_n. The pin is likely not used by any Z2 or Z3 boards.
+- Doesn't handle Multiple Transfer Cycles.
+- No handling of bus error (BERR/BINT).
+- No handling of slave collisions (SLAVE).
+- No handling of Read-Modify-Write cycles (RMC/LOCK).
 */
 
 // Signals with dual uses.
 wire ovr_n_in = cinh_n_in;
 wire xrdy_in = mtcr_n_in;
 
+// Synchronize asynchronous signals.
 reg [2:0] reset_n_sync;
 reg [2:0] dtack_n_sync;
 reg [2:0] fcs_n_sync;
+reg [2:0] ccs_n_sync;
 reg [2:0] all_eds_n_sync;
 reg [3:0] all_dsack_n_sync;
 reg [2:0] c7m_sync;
-reg [2:0] as_n_sync;
 reg [2:0] sbr_n_sync;
 reg [2:0] bg_n_sync;
 reg [2:0] bgack_n_sync;
-reg [4:0] ebr_n_sync_0;
-reg [4:0] ebr_n_sync_1;
+reg [2:0] ebgack_n_sync;
+reg [2:0] own_n_sync;
 
 always @(posedge clk100) begin
     reset_n_sync <= {reset_n_sync[1:0], reset_n_in};
     dtack_n_sync <= {dtack_n_sync[1:0], dtack_n_in};
     fcs_n_sync <= {fcs_n_sync[1:0], fcs_n_in};
+    ccs_n_sync <= {ccs_n_sync[1:0], ccs_n_in};
     all_eds_n_sync <= {all_eds_n_sync[1:0], &eds_n_in};
     all_dsack_n_sync <= {all_dsack_n_sync[2:0], &dsack_n_in};
     c7m_sync <= {c7m_sync[1:0], c7m_in};
-    as_n_sync <= {as_n_sync[1:0], as_n_in};
     sbr_n_sync <= {sbr_n_sync[1:0], sbr_n_in};
     bg_n_sync <= {bg_n_sync[1:0], bg_n_in};
     bgack_n_sync <= {bgack_n_sync[1:0], bgack_n_in};
-    ebr_n_sync_1 <= ebr_n_sync_0;
-    ebr_n_sync_0 <= ebr_n_in;
+    ebgack_n_sync <= {ebgack_n_sync[1:0], ebgack_n_in};
+    own_n_sync <= {own_n_sync[1:0], own_n_in};
 end
 
 wire c7m_rising = c7m_sync[2:1] == 2'b01;
 wire c7m_falling = c7m_sync[2:1] == 2'b10;
 
-localparam DIR_CPU_TO_ZORRO = 1'b0;
-localparam DIR_ZORRO_TO_CPU = 1'b1;
+reg [4:0] ebr_n_sync_0;
+reg [4:0] ebr_n_sync_1;
 
-reg direction;
+reg [4:0] ebr_n_falling_0;
+reg [4:0] ebr_n_falling_1;
 
-localparam ACCESS_IDLE = 3'd0;
-localparam ACCESS_CPU_TO_Z3 = 3'd1;
-localparam ACCESS_CPU_TO_Z2 = 3'd2;
-localparam ACCESS_CPU_TO_OTHER = 3'd3;
-localparam ACCESS_Z3_TO_CPU = 3'd4;
+always @(posedge clk100) begin
+    ebr_n_sync_1 <= ebr_n_sync_0;
+    ebr_n_sync_0 <= ebr_n_in;
 
-reg [2:0] access_state;
+    if (c7m_falling) begin
+        ebr_n_falling_1 <= ebr_n_falling_0;
+        ebr_n_falling_0 <= ebr_n_sync_1;
+    end
+end
 
 // Combinatorially generate next EDS_n.
 reg [3:0] next_z3_eds_n;
 
-// Some of these combinations may not be relevant in practice,
-// but are included for completeness.
 always @(*) begin
-    case (siz_in)
-        2'd1: begin
-            case (a_in[1:0])
-                2'd0: next_z3_eds_n <= 4'b0111;
-                2'd1: next_z3_eds_n <= 4'b1011;
-                2'd2: next_z3_eds_n <= 4'b1101;
-                2'd3: next_z3_eds_n <= 4'b1110;
-            endcase
-        end
-        2'd2: begin
-            case (a_in[1:0])
-                2'd0: next_z3_eds_n <= 4'b0011;
-                2'd1: next_z3_eds_n <= 4'b1001;
-                2'd2: next_z3_eds_n <= 4'b1100;
-                2'd3: next_z3_eds_n <= 4'b1110;
-            endcase
-        end
-        2'd3: begin
-            case (a_in[1:0])
-                2'd0: next_z3_eds_n <= 4'b0001;
-                2'd1: next_z3_eds_n <= 4'b1000;
-                2'd2: next_z3_eds_n <= 4'b1100;
-                2'd3: next_z3_eds_n <= 4'b1110;
-            endcase
-        end
-        2'd0: begin
-            case (a_in[1:0])
-                2'd0: next_z3_eds_n <= 4'b0000;
-                2'd1: next_z3_eds_n <= 4'b1000;
-                2'd2: next_z3_eds_n <= 4'b1100;
-                2'd3: next_z3_eds_n <= 4'b1110;
-            endcase
-        end
+    case ({siz_in, a_in[1:0]})
+        4'b0100: next_z3_eds_n <= 4'b0111;
+        4'b0101: next_z3_eds_n <= 4'b1011;
+        4'b0110: next_z3_eds_n <= 4'b1101;
+        4'b0111: next_z3_eds_n <= 4'b1110;
+        4'b1000: next_z3_eds_n <= 4'b0011;
+        4'b1001: next_z3_eds_n <= 4'b1001;
+        4'b1010: next_z3_eds_n <= 4'b1100;
+        4'b1011: next_z3_eds_n <= 4'b1110;
+        4'b1100: next_z3_eds_n <= 4'b0001;
+        4'b1101: next_z3_eds_n <= 4'b1000;
+        4'b1110: next_z3_eds_n <= 4'b1100;
+        4'b1111: next_z3_eds_n <= 4'b1110;
+        4'b0000: next_z3_eds_n <= 4'b0000;
+        4'b0001: next_z3_eds_n <= 4'b1000;
+        4'b0010: next_z3_eds_n <= 4'b1100;
+        4'b0011: next_z3_eds_n <= 4'b1110;
     endcase
 end
 
@@ -229,29 +221,32 @@ always @(*) begin
     end
 end
 
-reg [1:0] next_z3_a;
-reg [1:0] next_z3_siz;
+reg [3:0] next_z3_a;
 
 always @(*) begin
     case (eds_n_in)
-        4'b0000: next_z3_a <= 2'd0;
-        4'b0001: next_z3_a <= 2'd0;
-        4'b0010: next_z3_a <= 2'd0; // Invalid
-        4'b0011: next_z3_a <= 2'd0;
-        4'b0100: next_z3_a <= 2'd0; // Invalid
-        4'b0101: next_z3_a <= 2'd0; // Invalid
-        4'b0110: next_z3_a <= 2'd0; // Invalid
-        4'b0111: next_z3_a <= 2'd0;
-        4'b1000: next_z3_a <= 2'd1;
-        4'b1001: next_z3_a <= 2'd1;
-        4'b1010: next_z3_a <= 2'd1; // Invalid
-        4'b1011: next_z3_a <= 2'd1;
-        4'b1100: next_z3_a <= 2'd2;
-        4'b1101: next_z3_a <= 2'd2;
-        4'b1110: next_z3_a <= 2'd3;
-        4'b1111: next_z3_a <= 2'd3; // Not used during access
+        4'b0000: next_z3_a <= {ea_in[3:2], 2'd0};
+        4'b0001: next_z3_a <= {ea_in[3:2], 2'd0};
+        4'b0010: next_z3_a <= {ea_in[3:2], 2'd0}; // Invalid
+        4'b0011: next_z3_a <= {ea_in[3:2], 2'd0};
+        4'b0100: next_z3_a <= {ea_in[3:2], 2'd0}; // Invalid
+        4'b0101: next_z3_a <= {ea_in[3:2], 2'd0}; // Invalid
+        4'b0110: next_z3_a <= {ea_in[3:2], 2'd0}; // Invalid
+        4'b0111: next_z3_a <= {ea_in[3:2], 2'd0};
+        4'b1000: next_z3_a <= {ea_in[3:2], 2'd1};
+        4'b1001: next_z3_a <= {ea_in[3:2], 2'd1};
+        4'b1010: next_z3_a <= {ea_in[3:2], 2'd1}; // Invalid
+        4'b1011: next_z3_a <= {ea_in[3:2], 2'd1};
+        4'b1100: next_z3_a <= {ea_in[3:2], 2'd2};
+        4'b1101: next_z3_a <= {ea_in[3:2], 2'd2};
+        4'b1110: next_z3_a <= {ea_in[3:2], 2'd3};
+        4'b1111: next_z3_a <= {ea_in[3:2], 2'd3}; // Not used during access
     endcase
+end
 
+reg [1:0] next_z3_siz;
+
+always @(*) begin
     case (eds_n_in)
         4'b0000: next_z3_siz <= 2'd0;
         4'b0001: next_z3_siz <= 2'd3;
@@ -272,42 +267,77 @@ always @(*) begin
     endcase
 end
 
-reg [2:0] cpu_to_z3_state;
-reg [2:0] z3_to_cpu_state;
+wire [3:0] next_z2_a = {ea_in[3:1], eds_n_in[3]};
 
-reg [2:0] cpu_to_z2_state;
-reg [2:0] z2_state;
+wire [1:0] next_z2_siz = eds_n_in[3:2] == 2'b00 ? 2'b10 : 2'b01;
 
-reg [2:0] address_decode_stable;
+// State for bus arbitration.
 
-reg [7:0] terminate_access_counter;
+localparam BM_CPU = 2'd0;
+localparam BM_Z3 = 2'd2;
+localparam BM_Z2 = 2'd3;
 
-reg [1:0] sterm_n_delayed;
-
-reg [4:0] ebr_n_falling_0;
-reg [4:0] ebr_n_falling_1;
-
-reg [4:0] z3_registered;
-
-// A pulse is if EBR is high, low, high on subsequent falling C7M edges.
-wire [4:0] z3_register_pulse = ebr_n_falling_1 & ~ebr_n_falling_0 & ebr_n_sync_1;
+reg [1:0] bm_state;
 
 localparam BA_NONE = 2'd0;
 localparam BA_SDMAC = 2'd1;
 localparam BA_Z3 = 2'd2;
+localparam BA_Z2 = 2'd3;
 
 reg [1:0] ba_state;
 
 reg [2:0] z3_ba_state;
+reg [1:0] z2_ba_state;
 
+// A pulse is if EBR is high, low, high on subsequent falling C7M edges.
+wire [4:0] z3_register_pulse = ebr_n_falling_1 & ~ebr_n_falling_0 & ebr_n_sync_1;
+
+reg [4:0] z3_requests;
 reg [4:0] z3_grant;
 wire [4:0] next_z3_grant;
 
-round_robin_priority_encoder rrpe(
-    .requests(z3_registered),
+round_robin_priority_encoder z3_rrpe(
+    .requests(z3_requests),
     .previous_grant(z3_grant),
     .grant(next_z3_grant)
 );
+
+// EBR asserted on two consecutive falling C7M edges means Z2 board is requesting.
+wire [4:0] z2_requests = ~ebr_n_falling_1 & ~ebr_n_falling_0;
+reg [4:0] z2_grant;
+wire [4:0] next_z2_grant;
+
+round_robin_priority_encoder z2_rrpe(
+    .requests(z2_requests),
+    .previous_grant(z2_grant),
+    .grant(next_z2_grant)
+);
+
+// State for access handling.
+
+localparam ACCESS_IDLE = 3'd0;
+localparam ACCESS_CPU_TO_Z3 = 3'd1;
+localparam ACCESS_CPU_TO_Z2 = 3'd2;
+localparam ACCESS_CPU_TO_OTHER = 3'd3;
+localparam ACCESS_Z3_TO_CPU = 3'd4;
+localparam ACCESS_Z3_TO_Z3 = 3'd5;
+localparam ACCESS_Z2_TO_CPU = 3'd6;
+
+reg [2:0] access_state;
+
+reg [2:0] address_decode_stable;
+reg [1:0] sterm_n_delayed;
+reg [1:0] addrz3_n_delayed;
+
+reg [2:0] cpu_to_z3_state;
+reg [7:0] terminate_access_counter;
+
+reg [2:0] cpu_to_z2_state;
+reg [2:0] z2_state;
+
+reg [2:0] z3_to_cpu_state;
+
+reg [2:0] z2_to_cpu_state;
 
 // All signals are controlled sequentially.
 
@@ -317,10 +347,7 @@ always @(posedge clk100) begin
 
     sterm_n_delayed <= {sterm_n_delayed[0], sterm_n_in};
 
-    if (c7m_falling) begin
-        ebr_n_falling_1 <= ebr_n_falling_0;
-        ebr_n_falling_0 <= ebr_n_sync_1;
-    end
+    addrz3_n_delayed <= {addrz3_n_delayed[0], addrz3_n_in};
 
     if (!reset_n_sync[1]) begin // In reset.
         // Output pins.
@@ -330,8 +357,14 @@ always @(posedge clk100) begin
         own_n_out <= 1'b1;
         own_n_oe <= 1'b0;
 
+        bigz_n_out <= 1'b1;
+        bigz_n_oe <= 1'b0;
+
         dboe_n_out <= 2'b11;
         dboe_n_oe <= 2'b0;
+
+        db16_n_out <= 1'b1;
+        db16_n_oe <= 1'b0;
 
         d2p_n_out <= 1'b1;
         d2p_n_oe <= 1'b0;
@@ -400,23 +433,35 @@ always @(posedge clk100) begin
         ebg_n_oe <= 5'b0;
 
         // Internal state.
-        direction = DIR_CPU_TO_ZORRO;
-        access_state <= ACCESS_IDLE;
 
-        cpu_to_z3_state <= 3'd0;
-        z3_to_cpu_state <= 3'd0;
+        // Bus arbitration state.
 
-        terminate_access_counter <= 8'd0;
+        bm_state <= BM_CPU;
 
         ba_state <= BA_NONE;
 
         z3_ba_state <= 3'd0;
 
-        z3_registered <= 5'b0;
+        z2_ba_state <= 2'd0;
+
+        z3_requests <= 5'b0;
         z3_grant <= 5'b0;
+
+        z2_grant <= 5'b0;
+
+        // Access state.
+        access_state <= ACCESS_IDLE;
+
+        cpu_to_z3_state <= 3'd0;
+
+        terminate_access_counter <= 8'd0;
 
         cpu_to_z2_state <= 3'd0;
         z2_state <= 3'd0;
+
+        z3_to_cpu_state <= 3'd0;
+
+        z2_to_cpu_state <= 3'd0;
 
     end else if (!reset_n_sync[2]) begin // Coming out of reset.
 
@@ -425,6 +470,9 @@ always @(posedge clk100) begin
 
         aboe_n_out <= 3'b000;
         aboe_n_oe <= 3'b111;
+
+        bigz_n_out <= 1'b1;
+        bigz_n_oe <= 1'b1;
 
         ea_out <= 3'b111;
         ea_oe <= 3'b111;
@@ -444,6 +492,9 @@ always @(posedge clk100) begin
         dboe_n_out <= 2'b11;
         dboe_n_oe <= 2'b11;
 
+        db16_n_out <= 1'b1;
+        db16_n_oe <= 1'b1;
+
         d2p_n_out <= 1'b1;
         d2p_n_oe <= 1'b1;
 
@@ -461,20 +512,26 @@ always @(posedge clk100) begin
 
     end else begin // Normal operations.
 
+        // Handle Z3 register/deregister pulses.
         if (c7m_falling) begin
-            z3_registered <= z3_registered ^ z3_register_pulse;
+            z3_requests <= z3_requests ^ z3_register_pulse;
         end
 
+        // Logic for multiplexing bus arbitration.
         case (ba_state)
             BA_NONE: begin
                 if (!sbr_n_sync[1]) begin
                     br_n_out <= 1'b0;
                     br_n_oe <= 1'b1;
                     ba_state <= BA_SDMAC;
-                end else if (|z3_registered) begin
+                end else if (|z3_requests) begin
                     br_n_out <= 1'b0;
                     br_n_oe <= 1'b1;
                     ba_state <= BA_Z3;
+                end else if (|z2_requests) begin
+                    br_n_out <= 1'b0;
+                    br_n_oe <= 1'b1;
+                    ba_state <= BA_Z2;
                 end
             end
 
@@ -491,7 +548,7 @@ always @(posedge clk100) begin
                 case (z3_ba_state)
                     3'd0: begin
                         if (!bg_n_sync[1] && bgack_n_sync[1] && access_state == ACCESS_IDLE) begin
-                            direction <= DIR_ZORRO_TO_CPU;
+                            bm_state <= BM_Z3;
 
                             // Stop driving towards the Zorro bus.
                             ea_oe <= 3'b000;
@@ -537,7 +594,7 @@ always @(posedge clk100) begin
                         // Let board do as many requests as it pleases.
                         // Eventually it'll run out of data to copy and
                         // then it returns bus mastery to the cpu.
-                        if (!(|(z3_registered & z3_grant))) begin
+                        if (!(|(z3_requests & z3_grant))) begin
                             ebg_n_out <= 5'b11111;
                             z3_ba_state <= 3'd4;
                         end
@@ -549,7 +606,7 @@ always @(posedge clk100) begin
                     end
                     3'd5: begin
                         if (cpuclk_rising) begin
-                            direction <= DIR_CPU_TO_ZORRO;
+                            bm_state <= BM_CPU;
 
                             // Start driving towards the Zorro bus.
                             ea_oe <= 3'b111;
@@ -570,6 +627,10 @@ always @(posedge clk100) begin
                             own_n_out <= 1'b1;
                             own_n_oe <= 1'b1;
 
+                            // Negating BGACK at the same time as OWN is not a
+                            // problem, because the CPU will synchronize BGACK
+                            // before using it, so there is sufficient time for
+                            // the latch to switch direction.
                             bgack_n_out <= 1'b1;
                             bgack_n_oe <= 1'b1;
 
@@ -585,44 +646,140 @@ always @(posedge clk100) begin
                     end
                 endcase
             end
+
+            BA_Z2: begin
+                case (z2_ba_state)
+                    2'd0: begin
+                        // TODO: Borde kanske vara bättre att använda clk90_falling här?
+                        // För när man synkar bg_n så är det då den är tillgänglig, tror jag.
+                        if (!bg_n_sync[1] && bgack_n_sync[1] && access_state == ACCESS_IDLE && cpuclk_rising) begin
+                            bm_state <= BM_Z2;
+
+                            // The CPU has stopped driving the bus.
+                            // Stop driving towards the Zorro bus.
+                            ea_oe <= 3'b000;
+                            read_oe <= 1'b0;
+                            doe_oe <= 1'b0;
+                            fcs_n_oe <= 1'b0;
+                            ccs_n_oe <= 1'b0;
+                            eds_n_oe <= 4'b0000;
+
+                            // Start driving towards the CPU bus.
+                            a_oe <= 4'b1111;
+                            siz_oe <= 2'b11;
+                            rw_oe <= 1'b1;
+                            as_n_oe <= 1'b1;
+                            ds_n_oe <= 1'b1;
+
+                            // Gary drives A[31:24] instead of latch.
+                            aboe_n_out <= 3'b100;
+                            bigz_n_out <= 1'b0;
+
+                            bgack_n_out <= 1'b0;
+                            bgack_n_oe <= 1'b1;
+
+                            z2_grant <= next_z2_grant;
+                            ebg_n_out <= ~next_z2_grant;
+
+                            z2_ba_state <= 2'd1;
+                        end
+                    end
+                    2'd1: begin
+                        if (cpuclk_rising) begin
+                            br_n_oe <= 1'b0;
+                        end
+
+                        // Negate EBG when EBR is negated.
+                        ebg_n_out <= ebr_n_sync_1 | ~z2_grant;
+
+                        if (ebgack_n_sync[1] && (&ebg_n_out) && own_n_sync[1]) begin
+                            bigz_n_out <= 1'b1;
+                            z2_ba_state <= 2'd2;
+                        end
+                    end
+                    2'd2: begin
+                        if (cpuclk_rising) begin
+                            bm_state <= BM_CPU;
+
+                            // Start driving towards the Zorro bus.
+                            ea_oe <= 3'b111;
+                            read_oe <= 1'b1;
+                            doe_oe <= 1'b1;
+                            fcs_n_oe <= 1'b1;
+                            ccs_n_oe <= 1'b1;
+                            eds_n_oe <= 4'b1111;
+
+                            // Stop driving towards the CPU bus.
+                            a_oe <= 4'b0000;
+                            siz_oe <= 2'b00;
+                            rw_oe <= 1'b0;
+                            as_n_oe <= 1'b0;
+                            ds_n_oe <= 1'b0;
+
+                            // Negate BGACK so that CPU resumes bus mastering.
+                            bgack_n_out <= 1'b1;
+                            bgack_n_oe <= 1'b1;
+
+                            z2_ba_state <= 2'd3;
+                        end
+                    end
+                    2'd3: begin
+                        aboe_n_out <= 3'b000;
+
+                        bgack_n_oe <= 1'b0;
+
+                        z2_ba_state <= 2'd0;
+                        ba_state <= BA_NONE;
+                    end
+                endcase
+            end
         endcase
 
         case (access_state)
             ACCESS_IDLE: begin
+                case (bm_state)
+                    BM_CPU: begin
+                        // Rising edge going from S0 to S1.
+                        if (cpuclk_rising && !as_n_in) begin
+                            // If this later turns out to be a Z2 access then
+                            // ea_out has to be updated.
+                            ea_out <= {a_in[3:2], 1'b1};
+                            read_out <= rw_in;
 
-                if (direction == DIR_CPU_TO_ZORRO) begin
-                    // CPU is bus master.
+                            d2p_n_out <= !rw_in;
+                        end
 
-                    // Rising edge going from S0 to S1.
-                    if (cpuclk_rising && !as_n_in) begin
-                        // If this later turns out to be a Z2 access then
-                        // ea_out has to be updated.
-                        ea_out <= {a_in[3:2], 1'b1};
-                        read_out <= rw_in;
-
-                        d2p_n_out <= !rw_in;
-                    end
-
-                    // Falling edge going from S1 to S2.
-                    // This should give address decoder enough time.
-                    if (cpuclk_falling && !as_n_in && address_decode_stable[2]) begin
-                        if (!addrz3_n_in) begin
-                            fcs_n_out <= 1'b0;
-                            access_state <= ACCESS_CPU_TO_Z3;
-                        end else if (!memz2_n_in || !ioz2_n_in) begin
-                            fcs_n_out <= 1'b0;
-                            access_state <= ACCESS_CPU_TO_Z2;
-                        end else begin
-                            access_state <= ACCESS_CPU_TO_OTHER;
+                        // Falling edge going from S1 to S2.
+                        // This should give address decoder enough time.
+                        if (cpuclk_falling && !as_n_in && address_decode_stable[2]) begin
+                            if (!addrz3_n_in) begin
+                                fcs_n_out <= 1'b0;
+                                access_state <= ACCESS_CPU_TO_Z3;
+                            end else if (!memz2_n_in || !ioz2_n_in) begin
+                                fcs_n_out <= 1'b0;
+                                access_state <= ACCESS_CPU_TO_Z2;
+                            end else begin
+                                access_state <= ACCESS_CPU_TO_OTHER;
+                            end
                         end
                     end
-                end else begin // DIR_ZORRO_TO_CPU
-                    // Zorro is bus master.
 
-                    if (!fcs_n_sync[1]) begin
-                        access_state <= ACCESS_Z3_TO_CPU;
+                    BM_Z3: begin
+                        if (!fcs_n_sync[1]) begin
+                            if (!addrz3_n_delayed[1]) begin
+                                access_state <= ACCESS_Z3_TO_Z3;
+                            end else begin
+                                access_state <= ACCESS_Z3_TO_CPU;
+                            end
+                        end
                     end
-                end
+
+                    BM_Z2: begin
+                        if (!ccs_n_sync[1]) begin
+                            access_state <= ACCESS_Z2_TO_CPU;
+                        end
+                    end
+                endcase
             end
 
             ACCESS_CPU_TO_OTHER: begin
@@ -713,80 +870,6 @@ always @(posedge clk100) begin
                             aboe_n_out <= 3'b000;
 
                             cpu_to_z3_state <= 3'd0;
-
-                            access_state <= ACCESS_IDLE;
-                        end
-                    end
-                endcase
-            end
-
-            ACCESS_Z3_TO_CPU: begin
-                case (z3_to_cpu_state)
-                    3'd0: begin // Entering S0
-                        if (cpuclk_rising && doe_in && !all_eds_n_sync) begin
-                            a_out <= {ea_in[3:2], next_z3_a};
-                            siz_out <= next_z3_siz;
-                            rw_out <= read_in;
-
-                            dboe_n_out <= 2'b00;
-                            d2p_n_out <= read_in;
-
-                            z3_to_cpu_state <= 3'd1;
-                        end
-                    end
-                    3'd1: begin // S0 -> S1
-                        if (cpuclk_falling) begin
-                            as_n_out <= 1'b0;
-
-                            if (rw_out)
-                                ds_n_out <= 1'b0;
-
-                            z3_to_cpu_state <= 3'd2;
-                        end
-                    end
-                    3'd2: begin // S2 -> S3
-                        if (cpuclk_falling) begin
-                            ds_n_out <= 1'b0;
-
-                            z3_to_cpu_state <= 3'd3;
-                        end
-                    end
-                    3'd3: begin // S4 -> S5
-                        if (cpuclk_falling) begin
-                            if (!all_dsack_n_sync[3] || !sterm_n_delayed[1]) begin
-
-                                if (!rw_out) begin
-                                    as_n_out <= 1'b1;
-                                    ds_n_out <= 1'b1;
-                                end
-
-                                dtack_n_out <= 1'b0;
-                                dtack_n_oe <= 1'b1;
-
-                                z3_to_cpu_state <= 3'd4;
-                            end
-                        end
-                    end
-                    3'd4: begin
-                        if (fcs_n_sync[1]) begin
-
-                            // Stop driving DTACK_n as soon as possible.
-                            dtack_n_out <= 1'b1;
-
-                            // Stop driving data.
-                            dboe_n_out <= 2'b11;
-
-                            z3_to_cpu_state <= 3'd5;
-                        end
-                    end
-                    3'd5: begin
-                        dtack_n_oe <= 1'b0;
-
-                        if (!rw_out || cpuclk_falling) begin
-                            as_n_out <= 1'b1;
-                            ds_n_out <= 1'b1;
-
-                            z3_to_cpu_state <= 3'd0;
 
                             access_state <= ACCESS_IDLE;
                         end
@@ -943,6 +1026,169 @@ always @(posedge clk100) begin
                             z2_state <= 3'd0;
                         end
                     end
+                endcase
+            end
+
+            ACCESS_Z3_TO_CPU: begin
+                case (z3_to_cpu_state)
+                    3'd0: begin // Entering S0
+                        if (cpuclk_rising && doe_in && !all_eds_n_sync[1]) begin
+                            a_out <= next_z3_a;
+                            siz_out <= next_z3_siz;
+                            rw_out <= read_in;
+
+                            dboe_n_out <= 2'b00;
+                            d2p_n_out <= read_in;
+
+                            z3_to_cpu_state <= 3'd1;
+                        end
+                    end
+                    3'd1: begin // S0 -> S1
+                        if (cpuclk_falling) begin
+                            as_n_out <= 1'b0;
+
+                            if (rw_out)
+                                ds_n_out <= 1'b0;
+
+                            z3_to_cpu_state <= 3'd2;
+                        end
+                    end
+                    3'd2: begin // S2 -> S3
+                        if (cpuclk_falling) begin
+                            ds_n_out <= 1'b0;
+
+                            z3_to_cpu_state <= 3'd3;
+                        end
+                    end
+                    3'd3: begin // S4 -> S5
+                        if (cpuclk_falling) begin
+                            if (!all_dsack_n_sync[3] || !sterm_n_delayed[1]) begin
+
+                                if (!rw_out) begin
+                                    as_n_out <= 1'b1;
+                                    ds_n_out <= 1'b1;
+                                end
+
+                                dtack_n_out <= 1'b0;
+                                dtack_n_oe <= 1'b1;
+
+                                z3_to_cpu_state <= 3'd4;
+                            end
+                        end
+                    end
+                    3'd4: begin
+                        if (fcs_n_sync[1]) begin
+
+                            // Stop driving DTACK_n as soon as possible.
+                            dtack_n_out <= 1'b1;
+
+                            // Stop driving data.
+                            dboe_n_out <= 2'b11;
+
+                            z3_to_cpu_state <= 3'd5;
+                        end
+                    end
+                    3'd5: begin
+                        dtack_n_oe <= 1'b0;
+
+                        if (!rw_out || cpuclk_falling) begin
+                            as_n_out <= 1'b1;
+                            ds_n_out <= 1'b1;
+
+                            z3_to_cpu_state <= 3'd0;
+
+                            access_state <= ACCESS_IDLE;
+                        end
+                    end
+                endcase
+            end
+
+            ACCESS_Z3_TO_Z3: begin
+                // This is an access that is local to the Z3 bus. No translation needed!
+                // Access termination, etc, is handled by the bus master Z3 board.
+                if (fcs_n_sync[1]) begin
+                    access_state <= ACCESS_IDLE;
+                end
+            end
+
+            ACCESS_Z2_TO_CPU: begin
+                case (z2_to_cpu_state)
+                    3'd0: begin // Entering S0
+                        if (cpuclk_rising && !all_eds_n_sync[1]) begin
+                            a_out <= next_z2_a;
+                            siz_out <= next_z2_siz;
+                            rw_out <= read_in;
+
+                            if (!ea_in[1]) begin
+                                dboe_n_out <= 2'b01;
+                            end else begin
+                                db16_n_out <= 1'b0;
+                            end
+
+                            d2p_n_out <= read_in;
+
+                            z2_to_cpu_state <= 3'd1;
+                        end
+                    end
+                    3'd1: begin // S0 -> S1
+                        if (cpuclk_falling) begin
+                            as_n_out <= 1'b0;
+
+                            if (rw_out)
+                                ds_n_out <= 1'b0;
+
+                            z2_to_cpu_state <= 3'd2;
+                        end
+                    end
+                    3'd2: begin // S2 -> S3
+                        if (cpuclk_falling) begin
+                            ds_n_out <= 1'b0;
+
+                            z2_to_cpu_state <= 3'd3;
+                        end
+                    end
+                    3'd3: begin // S4 -> S5
+                        if (cpuclk_falling) begin
+                            if (!all_dsack_n_sync[3] || !sterm_n_delayed[1]) begin
+
+                                if (!rw_out) begin
+                                    as_n_out <= 1'b1;
+                                    ds_n_out <= 1'b1;
+                                end
+
+                                dtack_n_out <= 1'b0;
+                                dtack_n_oe <= 1'b1;
+
+                                z2_to_cpu_state <= 3'd4;
+                            end
+                        end
+                    end
+                    3'd4: begin
+                        if (ccs_n_sync[1]) begin
+
+                            // Stop driving DTACK_n as soon as possible.
+                            dtack_n_out <= 1'b1;
+
+                            // Stop driving data.
+                            dboe_n_out <= 2'b11;
+                            db16_n_out <= 1'b1;
+
+                            z2_to_cpu_state <= 3'd5;
+                        end
+                    end
+                    3'd5: begin
+                        dtack_n_oe <= 1'b0;
+
+                        if (!rw_out || cpuclk_falling) begin
+                            as_n_out <= 1'b1;
+                            ds_n_out <= 1'b1;
+
+                            z2_to_cpu_state <= 3'd0;
+
+                            access_state <= ACCESS_IDLE;
+                        end
+                    end
+
                 endcase
             end
 

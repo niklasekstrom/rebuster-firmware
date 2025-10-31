@@ -33,9 +33,10 @@ module rebuster_top(
     inout OWN_n,            // Address bus direction, also driven by Z2 master
 
     // Data bus buffers control
-    output [1:0] DBOE_n,    // Data bus output enables
+    output [1:0] DBOE_n,    // Data bus output enables, ED[31:0] <-> D[31:0]
+    output DB16_n,          // Data bus output enable, ED[31:16] <-> D[15:0]
     output D2P_n,           // Data bus direction, 0=zorro-to-cpu, 1=cpu-to-zorro
-    output DBLT,            // Data Bus Latch
+    output DBLT,            // Data bus latch for D[31:16], 0=transparent, 1=stored
 
     // MC68030 bus interface
     // Cf.: https://www.nxp.com/docs/en/reference-manual/MC68030UM-P1.pdf#page=118
@@ -48,6 +49,8 @@ module rebuster_top(
     inout [1:0] DSACK_n,    // Data Transfer and Size Acknowledge
     inout STERM_n,          // Synchronous Termination
     inout CIIN_n,           // Cache Inhibit In
+
+    output BIGZ_n,          // Request that Gary drives A[31:24] as zeroes
 
     // Zorro interface
     // http://amigadev.elowar.com/read/ADCD_2.1/Hardware_Manual_guide/node02C9.html
@@ -79,11 +82,36 @@ module rebuster_top(
 
     // Zorro bus master control
     input [4:0] EBR_n,      // Zx Bus Request
-    output [4:0] EBG_n      // Zx Bus Grant
-);
+    output [4:0] EBG_n,     // Zx Bus Grant
+    input EBGACK_n          // Z2 Bus Grant Acknowledge
 
-wire cpuclk_in;
-assign cpuclk_in = CPUCLK;
+    /*
+    Pins that are not used (as of now):
+
+    input CLK90,
+    input CDAC_n,
+
+    input HLT_n,            // Halt, unused
+
+    inout RMC_n,            // Read-Modify-Write Cycle
+
+    output BERR_n,          // Bus Error
+
+    input CBREQ_n,          // Cache Burst Request
+    output CBACK_n,         // Cache Burst Acknowledge
+
+    input WAIT_n,           // Cycle Delay
+
+    input [2:0] MS,         // Zx Function Codes
+
+    input BINT_n,           // Zx Bus Error
+
+    inout MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
+    inout MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
+
+    input EBCLR_n,          // Bus Request Pending
+    */
+);
 
 wire c7m_in;
 assign c7m_in = C7M;
@@ -116,6 +144,10 @@ wire [1:0] dboe_n_out;
 wire [1:0] dboe_n_oe;
 assign DBOE_n[1] = dboe_n_oe[1] ? dboe_n_out[1] : 1'bz;
 assign DBOE_n[0] = dboe_n_oe[0] ? dboe_n_out[0] : 1'bz;
+
+wire db16_n_out;
+wire db16_n_oe;
+assign DB16_n = db16_n_oe ? db16_n_out : 1'bz;
 
 wire d2p_n_out;
 wire d2p_n_oe;
@@ -177,6 +209,10 @@ wire ciin_n_out;
 wire ciin_n_oe;
 assign ciin_n_in = CIIN_n;
 assign CIIN_n = ciin_n_oe ? ciin_n_out : 1'bz;
+
+wire bigz_n_out;
+wire bigz_n_oe;
+assign BIGZ_n = bigz_n_oe ? bigz_n_out : 1'bz;
 
 wire [3:1] ea_in;
 wire [3:1] ea_out;
@@ -265,6 +301,9 @@ assign EBG_n[2] = ebg_n_oe[2] ? ebg_n_out[2] : 1'bz;
 assign EBG_n[1] = ebg_n_oe[1] ? ebg_n_out[1] : 1'bz;
 assign EBG_n[0] = ebg_n_oe[0] ? ebg_n_out[0] : 1'bz;
 
+wire ebgack_n_in;
+assign ebgack_n_in = EBGACK_n;
+
 // Logic to synchronize the clk100 clock to CPUCLK.
 // Relies on the source synchronous mode of the PLL for this to work:
 // https://www.intel.com/content/www/us/en/docs/programmable/683047/21-1/source-synchronous-mode.html
@@ -305,16 +344,12 @@ rebuster_core core(
     .cpuclk_rising(cpuclk_rising),
     .cpuclk_falling(cpuclk_falling),
 
-    .cpuclk_in(cpuclk_in),
-
     .c7m_in(c7m_in),
 
     .reset_n_in(reset_n_in),
 
     .addrz3_n_in(addrz3_n_in),
-
     .memz2_n_in(memz2_n_in),
-
     .ioz2_n_in(ioz2_n_in),
 
     .aboe_n_out(aboe_n_out),
@@ -326,6 +361,9 @@ rebuster_core core(
 
     .dboe_n_out(dboe_n_out),
     .dboe_n_oe(dboe_n_oe),
+
+    .db16_n_out(db16_n_out),
+    .db16_n_oe(db16_n_oe),
 
     .d2p_n_out(d2p_n_out),
     .d2p_n_oe(d2p_n_oe),
@@ -364,6 +402,9 @@ rebuster_core core(
     .ciin_n_in(ciin_n_in),
     .ciin_n_out(ciin_n_out),
     .ciin_n_oe(ciin_n_oe),
+
+    .bigz_n_out(bigz_n_out),
+    .bigz_n_oe(bigz_n_oe),
 
     .ea_in(ea_in),
     .ea_out(ea_out),
@@ -416,7 +457,8 @@ rebuster_core core(
     .ebr_n_in(ebr_n_in),
 
     .ebg_n_out(ebg_n_out),
-    .ebg_n_oe(ebg_n_oe)
+    .ebg_n_oe(ebg_n_oe),
+    .ebgack_n_in(ebgack_n_in)
 );
 
 endmodule
