@@ -287,7 +287,6 @@ localparam BA_Z2 = 2'd3;
 reg [1:0] ba_state;
 
 reg [2:0] z3_ba_state;
-reg [1:0] z2_ba_state;
 
 // A pulse is if EBR is high, low, high on subsequent falling C7M edges.
 wire [4:0] z3_register_pulse = ebr_n_falling_1 & ~ebr_n_falling_0 & ebr_n_sync_1;
@@ -302,6 +301,8 @@ round_robin_priority_encoder z3_rrpe(
     .grant(next_z3_grant)
 );
 
+reg [1:0] z2_ba_state;
+
 // EBR asserted on two consecutive falling C7M edges means Z2 board is requesting.
 wire [4:0] z2_requests = ~ebr_n_falling_1 & ~ebr_n_falling_0;
 reg [4:0] z2_grant;
@@ -312,6 +313,27 @@ round_robin_priority_encoder z2_rrpe(
     .previous_grant(z2_grant),
     .grant(next_z2_grant)
 );
+
+reg connect_busses;
+reg bus_direction; // 0=cpu-to-zorro, 1=zorro-to-cpu
+
+wire zorro_ctrl_oe = connect_busses && bus_direction == 1'b0;
+wire cpu_ctrl_oe = connect_busses && bus_direction == 1'b1;
+
+always @(*) begin
+    ea_oe <= {3{zorro_ctrl_oe}};
+    read_oe <= zorro_ctrl_oe;
+    doe_oe <= zorro_ctrl_oe;
+    fcs_n_oe <= zorro_ctrl_oe;
+    ccs_n_oe <= zorro_ctrl_oe;
+    eds_n_oe <= {4{zorro_ctrl_oe}};
+
+    a_oe <= {4{cpu_ctrl_oe}};
+    siz_oe <= {2{cpu_ctrl_oe}};
+    rw_oe <= cpu_ctrl_oe;
+    as_n_oe <= cpu_ctrl_oe;
+    ds_n_oe <= cpu_ctrl_oe;
+end
 
 // State for access handling.
 
@@ -341,86 +363,16 @@ reg [2:0] z2_to_cpu_state;
 
 // All signals are controlled sequentially.
 
+// Bus arbitration state machine.
+
 always @(posedge clk100) begin
-
-    address_decode_stable <= {address_decode_stable[1:0], aboe_n_out == 3'b000};
-
-    sterm_n_delayed <= {sterm_n_delayed[0], sterm_n_in};
-
-    addrz3_n_delayed <= {addrz3_n_delayed[0], addrz3_n_in};
 
     if (!reset_n_sync[1]) begin // In reset.
         // Output pins.
-        aboe_n_out <= 3'b111;
-        aboe_n_oe <= 3'b0;
-
         own_n_out <= 1'b1;
         own_n_oe <= 1'b0;
 
-        bigz_n_out <= 1'b1;
-        bigz_n_oe <= 1'b0;
-
-        dboe_n_out <= 2'b11;
-        dboe_n_oe <= 2'b0;
-
-        db16_n_out <= 1'b1;
-        db16_n_oe <= 1'b0;
-
-        d2p_n_out <= 1'b1;
-        d2p_n_oe <= 1'b0;
-
-        dblt_out <= 1'b0;
-        dblt_oe <= 1'b0;
-
-        a_out <= 4'b0;
-        a_oe <= 4'b0;
-
-        siz_out <= 2'b0;
-        siz_oe <= 2'b0;
-
-        rw_out <= 1'b0;
-        rw_oe <= 1'b0;
-
-        as_n_out <= 1'b1;
-        as_n_oe <= 1'b0;
-
-        ds_n_out <= 1'b1;
-        ds_n_oe <= 1'b0;
-
-        dsack_n_out <= 2'b11;
-        dsack_n_oe <= 2'b0;
-
-        sterm_n_out <= 1'b1;
-        sterm_n_oe <= 1'b0;
-
-        ciin_n_out <= 1'b1;
-        ciin_n_oe <= 1'b0;
-
-        ea_out <= 3'b0;
-        ea_oe <= 3'b0;
-
-        read_out <= 1'b1;
-        read_oe <= 1'b0;
-
-        fcs_n_out <= 1'b1;
-        fcs_n_oe <= 1'b0;
-
-        ccs_n_out <= 1'b1;
-        ccs_n_oe <= 1'b0;
-
-        doe_out <= 1'b0;
-        doe_oe <= 1'b0;
-
-        eds_n_out <= 4'b1111;
-        eds_n_oe <= 4'b0;
-
-        dtack_n_out <= 1'b1;
-        dtack_n_oe <= 1'b0;
-
-        cinh_n_out <= 1'b1;
-        cinh_n_oe <= 1'b0;
-
-        br_n_out <= 1'b1;
+        br_n_out <= 1'b0;
         br_n_oe <= 1'b0;
 
         bgack_n_out <= 1'b1;
@@ -430,85 +382,32 @@ always @(posedge clk100) begin
         sbg_n_oe <= 1'b0;
 
         ebg_n_out <= 5'b11111;
-        ebg_n_oe <= 5'b0;
+        ebg_n_oe <= 5'b00000;
 
         // Internal state.
-
-        // Bus arbitration state.
-
         bm_state <= BM_CPU;
 
         ba_state <= BA_NONE;
 
         z3_ba_state <= 3'd0;
 
-        z2_ba_state <= 2'd0;
-
         z3_requests <= 5'b0;
         z3_grant <= 5'b0;
 
+        z2_ba_state <= 2'd0;
+
         z2_grant <= 5'b0;
 
-        // Access state.
-        access_state <= ACCESS_IDLE;
-
-        cpu_to_z3_state <= 3'd0;
-
-        terminate_access_counter <= 8'd0;
-
-        cpu_to_z2_state <= 3'd0;
-        z2_state <= 3'd0;
-
-        z3_to_cpu_state <= 3'd0;
-
-        z2_to_cpu_state <= 3'd0;
+        connect_busses <= 1'b0;
+        bus_direction <= 1'b0;
 
     end else if (!reset_n_sync[2]) begin // Coming out of reset.
 
-        // When coming out of reset, the fpga should start driving towards Z3,
-        // as Zorro is slave.
-
-        aboe_n_out <= 3'b000;
-        aboe_n_oe <= 3'b111;
-
-        bigz_n_out <= 1'b1;
-        bigz_n_oe <= 1'b1;
-
-        ea_out <= 3'b111;
-        ea_oe <= 3'b111;
-
-        read_out <= 1'b1;
-        read_oe <= 1'b1;
-
-        doe_out <= 1'b0;
-        doe_oe <= 1'b1;
-
-        fcs_n_out <= 1'b1;
-        fcs_n_oe <= 1'b1;
-
-        ccs_n_out <= 1'b1;
-        ccs_n_oe <= 1'b1;
-
-        dboe_n_out <= 2'b11;
-        dboe_n_oe <= 2'b11;
-
-        db16_n_out <= 1'b1;
-        db16_n_oe <= 1'b1;
-
-        d2p_n_out <= 1'b1;
-        d2p_n_oe <= 1'b1;
-
-        dblt_out <= 1'b0;
-        dblt_oe <= 1'b1;
-
-        eds_n_out <= 4'b1111;
-        eds_n_oe <= 4'b1111;
-
-        sbg_n_out <= 1'b1;
         sbg_n_oe <= 1'b1;
 
-        ebg_n_out <= 5'b11111;
         ebg_n_oe <= 5'b11111;
+
+        connect_busses <= 1'b1;
 
     end else begin // Normal operations.
 
@@ -521,15 +420,15 @@ always @(posedge clk100) begin
         case (ba_state)
             BA_NONE: begin
                 if (!sbr_n_sync[1]) begin
-                    br_n_out <= 1'b0;
+                    //br_n_out <= 1'b0;
                     br_n_oe <= 1'b1;
                     ba_state <= BA_SDMAC;
                 end else if (|z3_requests) begin
-                    br_n_out <= 1'b0;
+                    //br_n_out <= 1'b0;
                     br_n_oe <= 1'b1;
                     ba_state <= BA_Z3;
                 end else if (|z2_requests) begin
-                    br_n_out <= 1'b0;
+                    //br_n_out <= 1'b0;
                     br_n_oe <= 1'b1;
                     ba_state <= BA_Z2;
                 end
@@ -550,20 +449,7 @@ always @(posedge clk100) begin
                         if (!bg_n_sync[1] && bgack_n_sync[1] && access_state == ACCESS_IDLE) begin
                             bm_state <= BM_Z3;
 
-                            // Stop driving towards the Zorro bus.
-                            ea_oe <= 3'b000;
-                            read_oe <= 1'b0;
-                            doe_oe <= 1'b0;
-                            fcs_n_oe <= 1'b0;
-                            ccs_n_oe <= 1'b0;
-                            eds_n_oe <= 4'b0000;
-
-                            // Start driving towards the CPU bus.
-                            a_oe <= 4'b1111;
-                            siz_oe <= 2'b11;
-                            rw_oe <= 1'b1;
-                            as_n_oe <= 1'b1;
-                            ds_n_oe <= 1'b1;
+                            bus_direction <= 1'b1;
 
                             // Switch direction of address buffers.
                             own_n_out <= 1'b0;
@@ -608,20 +494,7 @@ always @(posedge clk100) begin
                         if (cpuclk_rising) begin
                             bm_state <= BM_CPU;
 
-                            // Start driving towards the Zorro bus.
-                            ea_oe <= 3'b111;
-                            read_oe <= 1'b1;
-                            doe_oe <= 1'b1;
-                            fcs_n_oe <= 1'b1;
-                            ccs_n_oe <= 1'b1;
-                            eds_n_oe <= 4'b1111;
-
-                            // Stop driving towards the CPU bus.
-                            a_oe <= 4'b0000;
-                            siz_oe <= 2'b00;
-                            rw_oe <= 1'b0;
-                            as_n_oe <= 1'b0;
-                            ds_n_oe <= 1'b0;
+                            bus_direction <= 1'b0;
 
                             // Switch direction of address buffers.
                             own_n_out <= 1'b1;
@@ -655,25 +528,7 @@ always @(posedge clk100) begin
                         if (!bg_n_sync[1] && bgack_n_sync[1] && access_state == ACCESS_IDLE && cpuclk_rising) begin
                             bm_state <= BM_Z2;
 
-                            // The CPU has stopped driving the bus.
-                            // Stop driving towards the Zorro bus.
-                            ea_oe <= 3'b000;
-                            read_oe <= 1'b0;
-                            doe_oe <= 1'b0;
-                            fcs_n_oe <= 1'b0;
-                            ccs_n_oe <= 1'b0;
-                            eds_n_oe <= 4'b0000;
-
-                            // Start driving towards the CPU bus.
-                            a_oe <= 4'b1111;
-                            siz_oe <= 2'b11;
-                            rw_oe <= 1'b1;
-                            as_n_oe <= 1'b1;
-                            ds_n_oe <= 1'b1;
-
-                            // Gary drives A[31:24] instead of latch.
-                            aboe_n_out <= 3'b100;
-                            bigz_n_out <= 1'b0;
+                            bus_direction <= 1'b1;
 
                             bgack_n_out <= 1'b0;
                             bgack_n_oe <= 1'b1;
@@ -693,7 +548,6 @@ always @(posedge clk100) begin
                         ebg_n_out <= ebr_n_sync_1 | ~z2_grant;
 
                         if (ebgack_n_sync[1] && (&ebg_n_out) && own_n_sync[1]) begin
-                            bigz_n_out <= 1'b1;
                             z2_ba_state <= 2'd2;
                         end
                     end
@@ -701,20 +555,7 @@ always @(posedge clk100) begin
                         if (cpuclk_rising) begin
                             bm_state <= BM_CPU;
 
-                            // Start driving towards the Zorro bus.
-                            ea_oe <= 3'b111;
-                            read_oe <= 1'b1;
-                            doe_oe <= 1'b1;
-                            fcs_n_oe <= 1'b1;
-                            ccs_n_oe <= 1'b1;
-                            eds_n_oe <= 4'b1111;
-
-                            // Stop driving towards the CPU bus.
-                            a_oe <= 4'b0000;
-                            siz_oe <= 2'b00;
-                            rw_oe <= 1'b0;
-                            as_n_oe <= 1'b0;
-                            ds_n_oe <= 1'b0;
+                            bus_direction <= 1'b0;
 
                             // Negate BGACK so that CPU resumes bus mastering.
                             bgack_n_out <= 1'b1;
@@ -724,8 +565,6 @@ always @(posedge clk100) begin
                         end
                     end
                     2'd3: begin
-                        aboe_n_out <= 3'b000;
-
                         bgack_n_oe <= 1'b0;
 
                         z2_ba_state <= 2'd0;
@@ -734,12 +573,105 @@ always @(posedge clk100) begin
                 endcase
             end
         endcase
+    end
+end
+
+// Access state machine.
+
+always @(posedge clk100) begin
+
+    address_decode_stable <= {address_decode_stable[1:0], aboe_n_out == 3'b000};
+
+    sterm_n_delayed <= {sterm_n_delayed[0], sterm_n_in};
+
+    addrz3_n_delayed <= {addrz3_n_delayed[0], addrz3_n_in};
+
+    if (!reset_n_sync[1]) begin // In reset.
+        // Output pins.
+        aboe_n_out <= 3'b000;
+        aboe_n_oe <= 3'b000;
+
+        dboe_n_out <= 2'b11;
+        dboe_n_oe <= 2'b00;
+
+        db16_n_out <= 1'b1;
+        db16_n_oe <= 1'b0;
+
+        d2p_n_out <= 1'b1;
+        d2p_n_oe <= 1'b0;
+
+        dblt_out <= 1'b0;
+        dblt_oe <= 1'b0;
+
+        bigz_n_out <= 1'b1;
+        bigz_n_oe <= 1'b0;
+
+        // CPU control.
+        a_out <= 4'b0000;
+        siz_out <= 2'b00;
+        rw_out <= 1'b0;
+        as_n_out <= 1'b1;
+        ds_n_out <= 1'b1;
+
+        // CPU access termination.
+        dsack_n_out <= 2'b11;
+        dsack_n_oe <= 2'b00;
+
+        sterm_n_out <= 1'b1;
+        sterm_n_oe <= 1'b0;
+
+        ciin_n_out <= 1'b1;
+        ciin_n_oe <= 1'b0;
+
+        // Zorro control.
+        ea_out <= 3'b000;
+        read_out <= 1'b1;
+        fcs_n_out <= 1'b1;
+        ccs_n_out <= 1'b1;
+        doe_out <= 1'b0;
+        eds_n_out <= 4'b1111;
+
+        // Zorro access termination.
+        dtack_n_out <= 1'b1;
+        dtack_n_oe <= 1'b0;
+
+        cinh_n_out <= 1'b1;
+        cinh_n_oe <= 1'b0;
+
+        // Internal state.
+        access_state <= ACCESS_IDLE;
+
+        cpu_to_z3_state <= 3'd0;
+
+        terminate_access_counter <= 8'd0;
+
+        cpu_to_z2_state <= 3'd0;
+        z2_state <= 3'd0;
+
+        z3_to_cpu_state <= 3'd0;
+
+        z2_to_cpu_state <= 3'd0;
+
+    end else if (!reset_n_sync[2]) begin // Coming out of reset.
+
+        aboe_n_oe <= 3'b111;
+        dboe_n_oe <= 2'b11;
+        db16_n_oe <= 1'b1;
+        d2p_n_oe <= 1'b1;
+        dblt_oe <= 1'b1;
+
+        bigz_n_oe <= 1'b1;
+
+    end else begin // Normal operations.
 
         case (access_state)
             ACCESS_IDLE: begin
+                aboe_n_out <= bm_state == BM_Z2 ? 3'b100 : 3'b000;
+                bigz_n_out <= bm_state == BM_Z2 ? 1'b0 : 1'b1;
+
                 case (bm_state)
                     BM_CPU: begin
-                        // Rising edge going from S0 to S1.
+                        // Rising edge going from S1 to S2.
                         if (cpuclk_rising && !as_n_in) begin
                             // If this later turns out to be a Z2 access then
                             // ea_out has to be updated.
@@ -749,7 +681,7 @@ always @(posedge clk100) begin
                             d2p_n_out <= !rw_in;
                         end
 
-                        // Falling edge going from S1 to S2.
+                        // Falling edge going from S2 to S3.
                         // This should give address decoder enough time.
                         if (cpuclk_falling && !as_n_in && address_decode_stable[2]) begin
                             if (!addrz3_n_in) begin
