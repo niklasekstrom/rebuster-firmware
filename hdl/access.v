@@ -10,6 +10,12 @@ module access(
 
     input [1:0] bm_state,
 
+    output access_state_idle,
+
+    input addrz3_n_in,
+    input memz2_n_in,
+    input ioz2_n_in,
+
     output reg [2:0] aboe_n_out,
     output reg [2:0] aboe_n_oe,
 
@@ -29,72 +35,71 @@ module access(
     output reg bigz_n_oe,
 
     // CPU control.
+    input [3:0] a_in,
     output reg [3:0] a_out,
+
+    input [1:0] siz_in,
     output reg [1:0] siz_out,
+
+    input rw_in,
     output reg rw_out,
+
+    input as_n_in,
     output reg as_n_out,
+
+    input ds_n_in,
     output reg ds_n_out,
 
     // CPU access termination.
+    input [1:0] dsack_n_in,
     output reg [1:0] dsack_n_out,
     output reg [1:0] dsack_n_oe,
 
+    input sterm_n_in,
     output reg sterm_n_out,
     output reg sterm_n_oe,
 
+    input ciin_n_in,
     output reg ciin_n_out,
     output reg ciin_n_oe,
 
     // Zorro control.
+    input [3:1] ea_in,
     output reg [3:1] ea_out,
+
+    input read_in,
     output reg read_out,
+
+    input fcs_n_in,
     output reg fcs_n_out,
+
+    input ccs_n_in,
     output reg ccs_n_out,
+
+    input doe_in,
     output reg doe_out,
+
+    input [3:0] eds_n_in,
     output reg [3:0] eds_n_out,
 
     // Zorro access termination.
+    input dtack_n_in,
     output reg dtack_n_out,
     output reg dtack_n_oe,
 
+    input cinh_n_in,
     output reg cinh_n_out,
     output reg cinh_n_oe,
-
-    output access_state_idle,
-
-    input addrz3_n_in,
-    input memz2_n_in,
-    input ioz2_n_in,
-
-    input [3:0] a_in,
-    input [1:0] siz_in,
-    input rw_in,
-    input as_n_in,
-    input ds_n_in,
-
-    input [1:0] dsack_n_in,
-    input sterm_n_in,
-    input ciin_n_in,
-
-    input [3:1] ea_in,
-    input read_in,
-    input fcs_n_in,
-    input ccs_n_in,
-    input doe_in,
-    input [3:0] eds_n_in,
-
-    input dtack_n_in,
-    input cinh_n_in,
 
     input mtcr_n_in
 );
 
+wire ovr_n_in = cinh_n_in;
+wire xrdy_in = mtcr_n_in;
+
 localparam BM_CPU = 2'd0;
 localparam BM_Z3 = 2'd2;
 localparam BM_Z2 = 2'd3;
-
-wire ovr_n_in = cinh_n_in;
-wire xrdy_in = mtcr_n_in;
 
 // Synchronize asynchronous signals.
 reg [2:0] c7m_sync;
@@ -783,7 +788,6 @@ always @(posedge clk100) begin
 
                 endcase
             end
-
         endcase
     end
 end

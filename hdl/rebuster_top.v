@@ -23,6 +23,22 @@ module rebuster_top(
     // System reset
     input RESET_n,          // Reset, cannot be driven
 
+    // Bus arbitration signals to/from CPU
+    output BR_n,            // Bus Request
+    input BG_n,             // Bus Grant
+    inout BGACK_n,          // Bus Grant Acknowledge
+
+    // SDMAC
+    input SBR_n,            // SDMAC Bus Request
+    output SBG_n,           // SDMAC Bus Grant
+
+    // Zorro bus master control
+    input [4:0] EBR_n,      // Zx Bus Request
+    output [4:0] EBG_n,     // Zx Bus Grant
+    input EBGACK_n,         // Z2 Bus Grant Acknowledge
+
+    inout OWN_n,            // Address bus direction, also driven by Z2 master
+
     // Address decode, from U714 based on EAD[31:18]
     input ADDRZ3_n,         // Z3 Address Decode
     input MEMZ2_n,          // Z2 Mem Address Decode
@@ -30,13 +46,14 @@ module rebuster_top(
 
     // Address bus buffers control
     output [2:0] ABOE_n,    // Address bus output enables
-    inout OWN_n,            // Address bus direction, also driven by Z2 master
 
     // Data bus buffers control
     output [1:0] DBOE_n,    // Data bus output enables, ED[31:0] <-> D[31:0]
     output DB16_n,          // Data bus output enable, ED[31:16] <-> D[15:0]
     output D2P_n,           // Data bus direction, 0=zorro-to-cpu, 1=cpu-to-zorro
     output DBLT,            // Data bus latch for D[31:16], 0=transparent, 1=stored
+
+    output BIGZ_n,          // Request that Gary drives A[31:24] as zeroes
 
     // MC68030 bus interface
     // Cf.: https://www.nxp.com/docs/en/reference-manual/MC68030UM-P1.pdf#page=118
@@ -49,8 +66,6 @@ module rebuster_top(
     inout [1:0] DSACK_n,    // Data Transfer and Size Acknowledge
     inout STERM_n,          // Synchronous Termination
     inout CIIN_n,           // Cache Inhibit In
-
-    output BIGZ_n,          // Request that Gary drives A[31:24] as zeroes
 
     // Zorro interface
     // http://amigadev.elowar.com/read/ADCD_2.1/Hardware_Manual_guide/node02C9.html
@@ -66,24 +81,8 @@ module rebuster_top(
 
     // Multiple Transfer Cycle handshake
     // Bus master asserts MTCR, bus slave responds on MTACK
-    input MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
+    input MTCR_n            // Z3 Multiple Transfer Cycle Request / Z2 XRDY
     //input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
-
-    // -- Bus arbitration --
-
-    // Bus arbitration signals to/from CPU
-    output BR_n,            // Bus Request
-    input BG_n,             // Bus Grant
-    inout BGACK_n,          // Bus Grant Acknowledge
-
-    // DMAC
-    input SBR_n,            // DMAC Bus Request
-    output SBG_n,           // DMAC Bus Grant
-
-    // Zorro bus master control
-    input [4:0] EBR_n,      // Zx Bus Request
-    output [4:0] EBG_n,     // Zx Bus Grant
-    input EBGACK_n          // Z2 Bus Grant Acknowledge
 
     /*
     Pins that are not used (as of now):
@@ -104,6 +103,8 @@ module rebuster_top(
 
     input [2:0] MS,         // Zx Function Codes
 
+    input [4:0] SLAVE_n,    // Zx Slave responding to access
+
     input BINT_n,           // Zx Bus Error
 
     inout MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
@@ -119,6 +120,46 @@ assign c7m_in = C7M;
 wire reset_n_in;
 assign reset_n_in = RESET_n;
 
+wire br_n_out;
+wire br_n_oe;
+assign BR_n = br_n_oe ? br_n_out : 1'bz;
+
+wire bg_n_in;
+assign bg_n_in = BG_n;
+
+wire bgack_n_in;
+wire bgack_n_out;
+wire bgack_n_oe;
+assign bgack_n_in = BGACK_n;
+assign BGACK_n = bgack_n_oe ? bgack_n_out : 1'bz;
+
+wire sbr_n_in;
+assign sbr_n_in = SBR_n;
+
+wire sbg_n_out;
+wire sbg_n_oe;
+assign SBG_n = sbg_n_oe ? sbg_n_out : 1'bz;
+
+wire [4:0] ebr_n_in;
+assign ebr_n_in = EBR_n;
+
+wire [4:0] ebg_n_out;
+wire [4:0] ebg_n_oe;
+assign EBG_n[4] = ebg_n_oe[4] ? ebg_n_out[4] : 1'bz;
+assign EBG_n[3] = ebg_n_oe[3] ? ebg_n_out[3] : 1'bz;
+assign EBG_n[2] = ebg_n_oe[2] ? ebg_n_out[2] : 1'bz;
+assign EBG_n[1] = ebg_n_oe[1] ? ebg_n_out[1] : 1'bz;
+assign EBG_n[0] = ebg_n_oe[0] ? ebg_n_out[0] : 1'bz;
+
+wire ebgack_n_in;
+assign ebgack_n_in = EBGACK_n;
+
+wire own_n_in;
+wire own_n_out;
+wire own_n_oe;
+assign own_n_in = OWN_n;
+assign OWN_n = own_n_oe ? own_n_out : 1'bz;
+
 wire addrz3_n_in;
 assign addrz3_n_in = ADDRZ3_n;
 
@@ -133,12 +174,6 @@ wire [2:0] aboe_n_oe;
 assign ABOE_n[2] = aboe_n_oe[2] ? aboe_n_out[2] : 1'bz;
 assign ABOE_n[1] = aboe_n_oe[1] ? aboe_n_out[1] : 1'bz;
 assign ABOE_n[0] = aboe_n_oe[0] ? aboe_n_out[0] : 1'bz;
-
-wire own_n_in;
-wire own_n_out;
-wire own_n_oe;
-assign own_n_in = OWN_n;
-assign OWN_n = own_n_oe ? own_n_out : 1'bz;
 
 wire [1:0] dboe_n_out;
 wire [1:0] dboe_n_oe;
@@ -156,6 +191,10 @@ assign D2P_n = d2p_n_oe ? d2p_n_out : 1'bz;
 wire dblt_out;
 wire dblt_oe;
 assign DBLT = dblt_oe ? dblt_out : 1'bz;
+
+wire bigz_n_out;
+wire bigz_n_oe;
+assign BIGZ_n = bigz_n_oe ? bigz_n_out : 1'bz;
 
 wire [3:0] a_in;
 wire [3:0] a_out;
@@ -209,10 +248,6 @@ wire ciin_n_out;
 wire ciin_n_oe;
 assign ciin_n_in = CIIN_n;
 assign CIIN_n = ciin_n_oe ? ciin_n_out : 1'bz;
-
-wire bigz_n_out;
-wire bigz_n_oe;
-assign BIGZ_n = bigz_n_oe ? bigz_n_out : 1'bz;
 
 wire [3:1] ea_in;
 wire [3:1] ea_out;
@@ -270,40 +305,6 @@ assign CINH_n = cinh_n_oe ? cinh_n_out : 1'bz;
 wire mtcr_n_in;
 assign mtcr_n_in = MTCR_n;
 
-wire br_n_out;
-wire br_n_oe;
-assign BR_n = br_n_oe ? br_n_out : 1'bz;
-
-wire bg_n_in;
-assign bg_n_in = BG_n;
-
-wire bgack_n_in;
-wire bgack_n_out;
-wire bgack_n_oe;
-assign bgack_n_in = BGACK_n;
-assign BGACK_n = bgack_n_oe ? bgack_n_out : 1'bz;
-
-wire sbr_n_in;
-assign sbr_n_in = SBR_n;
-
-wire sbg_n_out;
-wire sbg_n_oe;
-assign SBG_n = sbg_n_oe ? sbg_n_out : 1'bz;
-
-wire [4:0] ebr_n_in;
-assign ebr_n_in = EBR_n;
-
-wire [4:0] ebg_n_out;
-wire [4:0] ebg_n_oe;
-assign EBG_n[4] = ebg_n_oe[4] ? ebg_n_out[4] : 1'bz;
-assign EBG_n[3] = ebg_n_oe[3] ? ebg_n_out[3] : 1'bz;
-assign EBG_n[2] = ebg_n_oe[2] ? ebg_n_out[2] : 1'bz;
-assign EBG_n[1] = ebg_n_oe[1] ? ebg_n_out[1] : 1'bz;
-assign EBG_n[0] = ebg_n_oe[0] ? ebg_n_out[0] : 1'bz;
-
-wire ebgack_n_in;
-assign ebgack_n_in = EBGACK_n;
-
 // Logic to synchronize the clk100 clock to CPUCLK.
 // Relies on the source synchronous mode of the PLL for this to work:
 // https://www.intel.com/content/www/us/en/docs/programmable/683047/21-1/source-synchronous-mode.html
@@ -348,16 +349,37 @@ rebuster_core core(
 
     .reset_n_in(reset_n_in),
 
+    .br_n_out(br_n_out),
+    .br_n_oe(br_n_oe),
+
+    .bg_n_in(bg_n_in),
+
+    .bgack_n_in(bgack_n_in),
+    .bgack_n_out(bgack_n_out),
+    .bgack_n_oe(bgack_n_oe),
+
+    .sbr_n_in(sbr_n_in),
+
+    .sbg_n_out(sbg_n_out),
+    .sbg_n_oe(sbg_n_oe),
+
+    .ebr_n_in(ebr_n_in),
+
+    .ebg_n_out(ebg_n_out),
+    .ebg_n_oe(ebg_n_oe),
+
+    .ebgack_n_in(ebgack_n_in),
+
+    .own_n_in(own_n_in),
+    .own_n_out(own_n_out),
+    .own_n_oe(own_n_oe),
+
     .addrz3_n_in(addrz3_n_in),
     .memz2_n_in(memz2_n_in),
     .ioz2_n_in(ioz2_n_in),
 
     .aboe_n_out(aboe_n_out),
     .aboe_n_oe(aboe_n_oe),
-
-    .own_n_in(own_n_in),
-    .own_n_out(own_n_out),
-    .own_n_oe(own_n_oe),
 
     .dboe_n_out(dboe_n_out),
     .dboe_n_oe(dboe_n_oe),
@@ -370,6 +392,9 @@ rebuster_core core(
 
     .dblt_out(dblt_out),
     .dblt_oe(dblt_oe),
+
+    .bigz_n_out(bigz_n_out),
+    .bigz_n_oe(bigz_n_oe),
 
     .a_in(a_in),
     .a_out(a_out),
@@ -403,9 +428,6 @@ rebuster_core core(
     .ciin_n_out(ciin_n_out),
     .ciin_n_oe(ciin_n_oe),
 
-    .bigz_n_out(bigz_n_out),
-    .bigz_n_oe(bigz_n_oe),
-
     .ea_in(ea_in),
     .ea_out(ea_out),
     .ea_oe(ea_oe),
@@ -438,27 +460,7 @@ rebuster_core core(
     .cinh_n_out(cinh_n_out),
     .cinh_n_oe(cinh_n_oe),
 
-    .mtcr_n_in(mtcr_n_in),
-
-    .br_n_out(br_n_out),
-    .br_n_oe(br_n_oe),
-
-    .bg_n_in(bg_n_in),
-
-    .bgack_n_in(bgack_n_in),
-    .bgack_n_out(bgack_n_out),
-    .bgack_n_oe(bgack_n_oe),
-
-    .sbr_n_in(sbr_n_in),
-
-    .sbg_n_out(sbg_n_out),
-    .sbg_n_oe(sbg_n_oe),
-
-    .ebr_n_in(ebr_n_in),
-
-    .ebg_n_out(ebg_n_out),
-    .ebg_n_oe(ebg_n_oe),
-    .ebgack_n_in(ebgack_n_in)
+    .mtcr_n_in(mtcr_n_in)
 );
 
 endmodule
