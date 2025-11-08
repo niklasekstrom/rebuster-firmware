@@ -10,43 +10,43 @@ module bus_arbitration(
 
     input access_state_idle,
 
-    output reg [1:0] bm_state,
+    output reg [1:0] bm_state = 2'd0,
 
-    output reg br_n_out,
-    output reg br_n_oe,
+    output reg br_n_out = 1'b1,
+    output reg br_n_oe = 1'b0,
 
     input bg_n_in,
 
     input bgack_n_in,
-    output reg bgack_n_out,
-    output reg bgack_n_oe,
+    output reg bgack_n_out = 1'b1,
+    output reg bgack_n_oe = 1'b0,
 
     input sbr_n_in,
 
-    output reg sbg_n_out,
-    output reg sbg_n_oe,
+    output reg sbg_n_out = 1'b1,
+    output reg sbg_n_oe = 1'b0,
 
     input [4:0] ebr_n_in,
 
-    output reg [4:0] ebg_n_out,
-    output reg [4:0] ebg_n_oe,
+    output reg [4:0] ebg_n_out = 5'b11111,
+    output reg [4:0] ebg_n_oe = 5'b00000,
 
     input ebgack_n_in,
 
     input own_n_in,
-    output reg own_n_out,
-    output reg own_n_oe
+    output reg own_n_out = 1'b1,
+    output reg own_n_oe = 1'b0
 );
 
 // Synchronize asynchronous signals.
-reg [2:0] c7m_sync;
-reg [2:0] reset_n_sync;
+reg [2:0] c7m_sync = 3'b000;
+reg [2:0] reset_n_sync = 3'b000;
 
-reg [2:0] bg_n_sync;
-reg [2:0] bgack_n_sync;
-reg [2:0] sbr_n_sync;
-reg [2:0] ebgack_n_sync;
-reg [2:0] own_n_sync;
+reg [2:0] bg_n_sync = 3'b111;
+reg [2:0] bgack_n_sync = 3'b111;
+reg [2:0] sbr_n_sync = 3'b111;
+reg [2:0] ebgack_n_sync = 3'b111;
+reg [2:0] own_n_sync = 3'b111;
 
 always @(posedge clk100) begin
     c7m_sync <= {c7m_sync[1:0], c7m_in};
@@ -62,11 +62,11 @@ end
 wire c7m_rising = c7m_sync[2:1] == 2'b01;
 wire c7m_falling = c7m_sync[2:1] == 2'b10;
 
-reg [4:0] ebr_n_sync_0;
-reg [4:0] ebr_n_sync_1;
+reg [4:0] ebr_n_sync_0 = 5'b11111;
+reg [4:0] ebr_n_sync_1 = 5'b11111;
 
-reg [4:0] ebr_n_falling_0;
-reg [4:0] ebr_n_falling_1;
+reg [4:0] ebr_n_falling_0 = 5'b11111;
+reg [4:0] ebr_n_falling_1 = 5'b11111;
 
 always @(posedge clk100) begin
     ebr_n_sync_1 <= ebr_n_sync_0;
@@ -84,22 +84,22 @@ localparam BM_CPU = 2'd0;
 localparam BM_Z3 = 2'd2;
 localparam BM_Z2 = 2'd3;
 
-//reg [1:0] bm_state;
+//reg [1:0] bm_state = BM_CPU;
 
 localparam BA_NONE = 2'd0;
 localparam BA_SDMAC = 2'd1;
 localparam BA_Z3 = 2'd2;
 localparam BA_Z2 = 2'd3;
 
-reg [1:0] ba_state;
+reg [1:0] ba_state = BA_NONE;
 
-reg [2:0] z3_ba_state;
+reg [2:0] z3_ba_state = 3'd0;
 
 // A pulse is if EBR is high, low, high on subsequent falling C7M edges.
 wire [4:0] z3_register_pulse = ebr_n_falling_1 & ~ebr_n_falling_0 & ebr_n_sync_1;
 
-reg [4:0] z3_requests;
-reg [4:0] z3_grant;
+reg [4:0] z3_requests = 5'b00000;
+reg [4:0] z3_grant = 5'b00000;
 wire [4:0] next_z3_grant;
 
 round_robin_priority_encoder z3_rrpe(
@@ -108,11 +108,11 @@ round_robin_priority_encoder z3_rrpe(
     .grant(next_z3_grant)
 );
 
-reg [1:0] z2_ba_state;
+reg [1:0] z2_ba_state = 2'd0;
 
 // EBR asserted on two consecutive falling C7M edges means Z2 board is requesting.
 wire [4:0] z2_requests = ~ebr_n_falling_1 & ~ebr_n_falling_0;
-reg [4:0] z2_grant;
+reg [4:0] z2_grant = 5'b00000;
 wire [4:0] next_z2_grant;
 
 round_robin_priority_encoder z2_rrpe(

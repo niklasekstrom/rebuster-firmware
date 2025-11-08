@@ -16,80 +16,80 @@ module access(
     input memz2_n_in,
     input ioz2_n_in,
 
-    output reg [2:0] aboe_n_out,
-    output reg [2:0] aboe_n_oe,
+    output reg [2:0] aboe_n_out = 3'b111,
+    output reg [2:0] aboe_n_oe = 3'b000,
 
-    output reg [1:0] dboe_n_out,
-    output reg [1:0] dboe_n_oe,
+    output reg [1:0] dboe_n_out = 2'b11,
+    output reg [1:0] dboe_n_oe = 2'b00,
 
-    output reg db16_n_out,
-    output reg db16_n_oe,
+    output reg db16_n_out = 1'b1,
+    output reg db16_n_oe = 1'b0,
 
-    output reg d2p_n_out,
-    output reg d2p_n_oe,
+    output reg d2p_n_out = 1'b1,
+    output reg d2p_n_oe = 1'b0,
 
-    output reg dblt_out,
-    output reg dblt_oe,
+    output reg dblt_out = 1'b0,
+    output reg dblt_oe = 1'b0,
 
-    output reg bigz_n_out,
-    output reg bigz_n_oe,
+    output reg bigz_n_out = 1'b1,
+    output reg bigz_n_oe = 1'b0,
 
     // CPU control.
     input [3:0] a_in,
-    output reg [3:0] a_out,
+    output reg [3:0] a_out = 4'b000,
 
     input [1:0] siz_in,
-    output reg [1:0] siz_out,
+    output reg [1:0] siz_out = 2'b00,
 
     input rw_in,
-    output reg rw_out,
+    output reg rw_out = 1'b1,
 
     input as_n_in,
-    output reg as_n_out,
+    output reg as_n_out = 1'b1,
 
     input ds_n_in,
-    output reg ds_n_out,
+    output reg ds_n_out = 1'b1,
 
     // CPU access termination.
     input [1:0] dsack_n_in,
-    output reg [1:0] dsack_n_out,
-    output reg [1:0] dsack_n_oe,
+    output reg [1:0] dsack_n_out = 1'b1,
+    output reg [1:0] dsack_n_oe = 1'b0,
 
     input sterm_n_in,
-    output reg sterm_n_out,
-    output reg sterm_n_oe,
+    output reg sterm_n_out = 1'b1,
+    output reg sterm_n_oe = 1'b0,
 
     input ciin_n_in,
-    output reg ciin_n_out,
-    output reg ciin_n_oe,
+    output reg ciin_n_out = 1'b1,
+    output reg ciin_n_oe = 1'b0,
 
     // Zorro control.
     input [3:1] ea_in,
-    output reg [3:1] ea_out,
+    output reg [3:1] ea_out = 3'b000,
 
     input read_in,
-    output reg read_out,
+    output reg read_out = 1'b1,
 
     input fcs_n_in,
-    output reg fcs_n_out,
+    output reg fcs_n_out = 1'b1,
 
     input ccs_n_in,
-    output reg ccs_n_out,
+    output reg ccs_n_out = 1'b1,
 
     input doe_in,
-    output reg doe_out,
+    output reg doe_out = 1'b0,
 
     input [3:0] eds_n_in,
-    output reg [3:0] eds_n_out,
+    output reg [3:0] eds_n_out = 4'b1111,
 
     // Zorro access termination.
     input dtack_n_in,
-    output reg dtack_n_out,
-    output reg dtack_n_oe,
+    output reg dtack_n_out = 1'b1,
+    output reg dtack_n_oe = 1'b0,
 
     input cinh_n_in,
-    output reg cinh_n_out,
-    output reg cinh_n_oe,
+    output reg cinh_n_out = 1'b1,
+    output reg cinh_n_oe = 1'b0,
 
     input mtcr_n_in
 );
@@ -102,15 +102,15 @@ localparam BM_Z3 = 2'd2;
 localparam BM_Z2 = 2'd3;
 
 // Synchronize asynchronous signals.
-reg [2:0] c7m_sync;
-reg [2:0] reset_n_sync;
+reg [2:0] c7m_sync = 3'b000;
+reg [2:0] reset_n_sync = 3'b000;
 
-reg [2:0] fcs_n_sync;
-reg [2:0] ccs_n_sync;
-reg [2:0] dtack_n_sync;
+reg [2:0] fcs_n_sync = 3'b111;
+reg [2:0] ccs_n_sync = 3'b111;
+reg [2:0] dtack_n_sync = 3'b111;
 
-reg [2:0] all_eds_n_sync;
-reg [3:0] all_dsack_n_sync;
+reg [2:0] all_eds_n_sync = 3'b111;
+reg [3:0] all_dsack_n_sync = 4'b1111;
 
 always @(posedge clk100) begin
     c7m_sync <= {c7m_sync[1:0], c7m_in};
@@ -224,21 +224,21 @@ localparam ACCESS_Z3_TO_CPU = 3'd4;
 localparam ACCESS_Z3_TO_Z3 = 3'd5;
 localparam ACCESS_Z2_TO_CPU = 3'd6;
 
-reg [2:0] access_state;
+reg [2:0] access_state = ACCESS_IDLE;
 
-reg [2:0] address_decode_stable;
-reg [1:0] sterm_n_delayed;
-reg [1:0] addrz3_n_delayed;
+reg [2:0] address_decode_stable = 3'b000;
+reg [1:0] sterm_n_delayed = 2'b11;
+reg [1:0] addrz3_n_delayed = 2'b11;
 
-reg [2:0] cpu_to_z3_state;
-reg [7:0] terminate_access_counter;
+reg [2:0] cpu_to_z3_state = 3'd0;
+reg [7:0] terminate_access_counter = 8'd0;
 
-reg [2:0] cpu_to_z2_state;
-reg [2:0] z2_state;
+reg [2:0] cpu_to_z2_state = 3'd0;
+reg [2:0] z2_state = 3'd0;
 
-reg [2:0] z3_to_cpu_state;
+reg [2:0] z3_to_cpu_state = 3'd0;
 
-reg [2:0] z2_to_cpu_state;
+reg [2:0] z2_to_cpu_state = 3'd0;
 
 assign access_state_idle = access_state == ACCESS_IDLE;
 
@@ -274,7 +274,7 @@ always @(posedge clk100) begin
         // CPU control.
         a_out <= 4'b0000;
         siz_out <= 2'b00;
-        rw_out <= 1'b0;
+        rw_out <= 1'b1;
         as_n_out <= 1'b1;
         ds_n_out <= 1'b1;
 

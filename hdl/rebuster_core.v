@@ -132,7 +132,7 @@ Notes:
 */
 
 // Synchronize asynchronous signals.
-reg [2:0] reset_n_sync;
+reg [2:0] reset_n_sync = 3'b000;
 
 always @(posedge clk100) begin
     reset_n_sync <= {reset_n_sync[1:0], reset_n_in};
