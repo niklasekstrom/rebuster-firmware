@@ -57,23 +57,23 @@ module rebuster_core(
 
     input [3:0] a_in,
     output [3:0] a_out,
-    output [3:0] a_oe,
+    output reg [3:0] a_oe,
 
     input [1:0] siz_in,
     output [1:0] siz_out,
-    output [1:0] siz_oe,
+    output reg [1:0] siz_oe,
 
     input rw_in,
     output rw_out,
-    output rw_oe,
+    output reg rw_oe,
 
     input as_n_in,
     output as_n_out,
-    output as_n_oe,
+    output reg as_n_oe,
 
     input ds_n_in,
     output ds_n_out,
-    output ds_n_oe,
+    output reg ds_n_oe,
 
     input [1:0] dsack_n_in,
     output [1:0] dsack_n_out,
@@ -89,27 +89,27 @@ module rebuster_core(
 
     input [3:1] ea_in,
     output [3:1] ea_out,
-    output [3:1] ea_oe,
+    output reg [3:1] ea_oe,
 
     input read_in,
     output read_out,
-    output read_oe,
+    output reg read_oe,
 
     input fcs_n_in,
     output fcs_n_out,
-    output fcs_n_oe,
+    output reg fcs_n_oe,
 
     input ccs_n_in,
     output ccs_n_out,
-    output ccs_n_oe,
+    output reg ccs_n_oe,
 
     input doe_in,
     output doe_out,
-    output doe_oe,
+    output reg doe_oe,
 
     input [3:0] eds_n_in,
     output [3:0] eds_n_out,
-    output [3:0] eds_n_oe,
+    output reg [3:0] eds_n_oe,
 
     input dtack_n_in,
     output dtack_n_out,
@@ -130,6 +130,13 @@ Notes:
 - No handling of slave collisions (SLAVE).
 - No handling of Read-Modify-Write cycles (RMC/LOCK).
 */
+
+// Synchronize asynchronous signals.
+reg [2:0] reset_n_sync;
+
+always @(posedge clk100) begin
+    reset_n_sync <= {reset_n_sync[1:0], reset_n_in};
+end
 
 // State for bus arbitration.
 wire [1:0] bm_state;
@@ -174,21 +181,26 @@ bus_arbitration bus_arbitration(
 
     .own_n_in(own_n_in),
     .own_n_out(own_n_out),
-    .own_n_oe(own_n_oe),
-
-    .ea_oe(ea_oe),
-    .read_oe(read_oe),
-    .doe_oe(doe_oe),
-    .fcs_n_oe(fcs_n_oe),
-    .ccs_n_oe(ccs_n_oe),
-    .eds_n_oe(eds_n_oe),
-
-    .a_oe(a_oe),
-    .siz_oe(siz_oe),
-    .rw_oe(rw_oe),
-    .as_n_oe(as_n_oe),
-    .ds_n_oe(ds_n_oe)
+    .own_n_oe(own_n_oe)
 );
+
+wire zorro_ctrl_oe = reset_n_sync[2] && own_n_in;
+wire cpu_ctrl_oe = reset_n_sync[2] && !own_n_in;
+
+always @(*) begin
+    ea_oe <= {3{zorro_ctrl_oe}};
+    read_oe <= zorro_ctrl_oe;
+    doe_oe <= zorro_ctrl_oe;
+    fcs_n_oe <= zorro_ctrl_oe;
+    ccs_n_oe <= zorro_ctrl_oe;
+    eds_n_oe <= {4{zorro_ctrl_oe}};
+
+    a_oe <= {4{cpu_ctrl_oe}};
+    siz_oe <= {2{cpu_ctrl_oe}};
+    rw_oe <= cpu_ctrl_oe;
+    as_n_oe <= cpu_ctrl_oe;
+    ds_n_oe <= cpu_ctrl_oe;
+end
 
 access access(
     .clk100(clk100),

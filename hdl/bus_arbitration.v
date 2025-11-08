@@ -35,20 +35,7 @@ module bus_arbitration(
 
     input own_n_in,
     output reg own_n_out,
-    output reg own_n_oe,
-
-    output reg [3:1] ea_oe,
-    output reg read_oe,
-    output reg doe_oe,
-    output reg fcs_n_oe,
-    output reg ccs_n_oe,
-    output reg [3:0] eds_n_oe,
-
-    output reg [3:0] a_oe,
-    output reg [1:0] siz_oe,
-    output reg rw_oe,
-    output reg as_n_oe,
-    output reg ds_n_oe
+    output reg own_n_oe
 );
 
 // Synchronize asynchronous signals.
@@ -134,27 +121,6 @@ round_robin_priority_encoder z2_rrpe(
     .grant(next_z2_grant)
 );
 
-reg connect_busses;
-reg bus_direction; // 0=cpu-to-zorro, 1=zorro-to-cpu
-
-wire zorro_ctrl_oe = connect_busses && bus_direction == 1'b0;
-wire cpu_ctrl_oe = connect_busses && bus_direction == 1'b1;
-
-always @(*) begin
-    ea_oe <= {3{zorro_ctrl_oe}};
-    read_oe <= zorro_ctrl_oe;
-    doe_oe <= zorro_ctrl_oe;
-    fcs_n_oe <= zorro_ctrl_oe;
-    ccs_n_oe <= zorro_ctrl_oe;
-    eds_n_oe <= {4{zorro_ctrl_oe}};
-
-    a_oe <= {4{cpu_ctrl_oe}};
-    siz_oe <= {2{cpu_ctrl_oe}};
-    rw_oe <= cpu_ctrl_oe;
-    as_n_oe <= cpu_ctrl_oe;
-    ds_n_oe <= cpu_ctrl_oe;
-end
-
 // State machine.
 always @(posedge clk100) begin
 
@@ -189,16 +155,11 @@ always @(posedge clk100) begin
 
         z2_grant <= 5'b0;
 
-        connect_busses <= 1'b0;
-        bus_direction <= 1'b0;
-
     end else if (!reset_n_sync[2]) begin // Coming out of reset.
 
         sbg_n_oe <= 1'b1;
 
         ebg_n_oe <= 5'b11111;
-
-        connect_busses <= 1'b1;
 
     end else begin // Normal operations.
 
@@ -240,9 +201,6 @@ always @(posedge clk100) begin
                         if (!bg_n_sync[1] && bgack_n_sync[1] && access_state_idle) begin
                             bm_state <= BM_Z3;
 
-                            bus_direction <= 1'b1;
-
-                            // Switch direction of address buffers.
                             own_n_out <= 1'b0;
                             own_n_oe <= 1'b1;
 
@@ -285,9 +243,6 @@ always @(posedge clk100) begin
                         if (cpuclk_rising) begin
                             bm_state <= BM_CPU;
 
-                            bus_direction <= 1'b0;
-
-                            // Switch direction of address buffers.
                             own_n_out <= 1'b1;
                             own_n_oe <= 1'b1;
 
@@ -319,8 +274,6 @@ always @(posedge clk100) begin
                         if (!bg_n_sync[1] && bgack_n_sync[1] && access_state_idle && cpuclk_rising) begin
                             bm_state <= BM_Z2;
 
-                            bus_direction <= 1'b1;
-
                             bgack_n_out <= 1'b0;
                             bgack_n_oe <= 1'b1;
 
@@ -346,8 +299,6 @@ always @(posedge clk100) begin
                     2'd2: begin
                         if (cpuclk_rising) begin
                             bm_state <= BM_CPU;
-
-                            bus_direction <= 1'b0;
 
                             // Negate BGACK so that CPU resumes bus mastering.
                             bgack_n_out <= 1'b1;
