@@ -3,6 +3,8 @@ module rebuster_core(
 
     input cpuclk_rising,
     input cpuclk_falling,
+    input clk90_rising,
+    input clk90_falling,
 
     input c7m_in,
 
@@ -214,6 +216,8 @@ access access(
 
     .cpuclk_rising(cpuclk_rising),
     .cpuclk_falling(cpuclk_falling),
+    .clk90_rising(clk90_rising),
+    .clk90_falling(clk90_falling),
 
     .c7m_in(c7m_in),
 

@@ -3,6 +3,8 @@ module access(
 
     input cpuclk_rising,
     input cpuclk_falling,
+    input clk90_rising,
+    input clk90_falling,
 
     input c7m_in,
 
