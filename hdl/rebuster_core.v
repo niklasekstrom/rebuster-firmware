@@ -119,15 +119,22 @@ module rebuster_core(
     output cinh_n_out,
     output cinh_n_oe,
 
-    input mtcr_n_in
+    input mtcr_n_in,
+
+    input [4:0] slave_n_in,
+
+    input bint_n_in,
+    output bint_n_out,
+    output bint_n_oe,
+
+    output berr_n_out,
+    output berr_n_oe
 );
 
 /*
 Notes:
 - Doesn't handle EBCLR_n. The pin is likely not used by any Z2 or Z3 boards.
 - Doesn't handle Multiple Transfer Cycles.
-- No handling of bus error (BERR/BINT).
-- No handling of slave collisions (SLAVE).
 - No handling of Read-Modify-Write cycles (RMC/LOCK).
 */
 
@@ -295,7 +302,16 @@ access access(
     .cinh_n_out(cinh_n_out),
     .cinh_n_oe(cinh_n_oe),
 
-    .mtcr_n_in(mtcr_n_in)
+    .mtcr_n_in(mtcr_n_in),
+
+    .slave_n_in(slave_n_in),
+
+    .bint_n_in(bint_n_in),
+    .bint_n_out(bint_n_out),
+    .bint_n_oe(bint_n_oe),
+
+    .berr_n_out(berr_n_out),
+    .berr_n_oe(berr_n_oe)
 );
 
 endmodule

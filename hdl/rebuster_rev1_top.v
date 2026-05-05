@@ -81,8 +81,12 @@ module rebuster_top(
 
     // Multiple Transfer Cycle handshake
     // Bus master asserts MTCR, bus slave responds on MTACK
-    input MTCR_n            // Z3 Multiple Transfer Cycle Request / Z2 XRDY
+    input MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
     //input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
+
+    input [4:0] SLAVE_n,    // Zx Slave responding to access
+    inout BINT_n,           // Zx Bus Error
+    output BERR_n           // Bus Error
 
     /*
     Pins that are not used (as of now):
@@ -94,18 +98,12 @@ module rebuster_top(
 
     inout RMC_n,            // Read-Modify-Write Cycle
 
-    output BERR_n,          // Bus Error
-
     input CBREQ_n,          // Cache Burst Request
     output CBACK_n,         // Cache Burst Acknowledge
 
     input WAIT_n,           // Cycle Delay
 
     input [2:0] MS,         // Zx Function Codes
-
-    input [4:0] SLAVE_n,    // Zx Slave responding to access
-
-    input BINT_n,           // Zx Bus Error
 
     inout MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
     inout MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
@@ -305,6 +303,19 @@ assign CINH_n = cinh_n_oe ? cinh_n_out : 1'bz;
 wire mtcr_n_in;
 assign mtcr_n_in = MTCR_n;
 
+wire [4:0] slave_n_in;
+assign slave_n_in = SLAVE_n;
+
+wire bint_n_in;
+wire bint_n_out;
+wire bint_n_oe;
+assign bint_n_in = BINT_n;
+assign BINT_n = bint_n_oe ? bint_n_out : 1'bz;
+
+wire berr_n_out;
+wire berr_n_oe;
+assign BERR_n = berr_n_oe ? berr_n_out : 1'bz;
+
 // Logic to synchronize the clk100 clock to CPUCLK.
 // Relies on the source synchronous mode of the PLL for this to work:
 // https://www.intel.com/content/www/us/en/docs/programmable/683047/21-1/source-synchronous-mode.html
@@ -460,7 +471,16 @@ rebuster_core core(
     .cinh_n_out(cinh_n_out),
     .cinh_n_oe(cinh_n_oe),
 
-    .mtcr_n_in(mtcr_n_in)
+    .mtcr_n_in(mtcr_n_in),
+
+    .slave_n_in(slave_n_in),
+
+    .bint_n_in(bint_n_in),
+    .bint_n_out(bint_n_out),
+    .bint_n_oe(bint_n_oe),
+
+    .berr_n_out(berr_n_out),
+    .berr_n_oe(berr_n_oe)
 );
 
 endmodule

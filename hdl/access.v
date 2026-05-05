@@ -91,7 +91,16 @@ module access(
     output reg cinh_n_out = 1'b1,
     output reg cinh_n_oe = 1'b0,
 
-    input mtcr_n_in
+    input mtcr_n_in,
+
+    input [4:0] slave_n_in,
+
+    input bint_n_in,
+    output reg bint_n_out = 1'b1,
+    output reg bint_n_oe = 1'b0,
+
+    output reg berr_n_out = 1'b1,
+    output reg berr_n_oe = 1'b0
 );
 
 wire ovr_n_in = cinh_n_in;
@@ -108,9 +117,19 @@ reg [2:0] reset_n_sync = 3'b000;
 reg [2:0] fcs_n_sync = 3'b111;
 reg [2:0] ccs_n_sync = 3'b111;
 reg [2:0] dtack_n_sync = 3'b111;
+reg [2:0] bint_n_sync = 3'b111;
+reg [2:0] slave_collision_sync = 3'b000;
 
 reg [2:0] all_eds_n_sync = 3'b111;
 reg [3:0] all_dsack_n_sync = 4'b1111;
+
+wire [4:0] slave_asserted_in = ~slave_n_in;
+wire any_slave_asserted_in = |slave_asserted_in;
+wire multiple_slaves_asserted_in =
+    (slave_asserted_in[0] && |slave_asserted_in[4:1]) ||
+    (slave_asserted_in[1] && |slave_asserted_in[4:2]) ||
+    (slave_asserted_in[2] && |slave_asserted_in[4:3]) ||
+    (slave_asserted_in[3] && slave_asserted_in[4]);
 
 always @(posedge clk100) begin
     c7m_sync <= {c7m_sync[1:0], c7m_in};
@@ -119,6 +138,8 @@ always @(posedge clk100) begin
     fcs_n_sync <= {fcs_n_sync[1:0], fcs_n_in};
     ccs_n_sync <= {ccs_n_sync[1:0], ccs_n_in};
     dtack_n_sync <= {dtack_n_sync[1:0], dtack_n_in};
+    bint_n_sync <= {bint_n_sync[1:0], bint_n_in};
+    slave_collision_sync <= {slave_collision_sync[1:0], multiple_slaves_asserted_in};
 
     all_eds_n_sync <= {all_eds_n_sync[1:0], &eds_n_in};
     all_dsack_n_sync <= {all_dsack_n_sync[2:0], &dsack_n_in};
@@ -223,6 +244,7 @@ localparam ACCESS_CPU_TO_OTHER = 3'd3;
 localparam ACCESS_Z3_TO_CPU = 3'd4;
 localparam ACCESS_Z3_TO_Z3 = 3'd5;
 localparam ACCESS_Z2_TO_CPU = 3'd6;
+localparam ACCESS_ERROR = 3'd7;
 
 reg [2:0] access_state = ACCESS_IDLE;
 
@@ -240,7 +262,30 @@ reg [2:0] z3_to_cpu_state = 3'd0;
 
 reg [2:0] z2_to_cpu_state = 3'd0;
 
+reg bus_error_active = 1'b0;
+reg bus_error_drive_bint = 1'b0;
+
 assign access_state_idle = access_state == ACCESS_IDLE;
+
+wire zorro_cycle_state =
+    access_state == ACCESS_CPU_TO_Z3 ||
+    access_state == ACCESS_CPU_TO_Z2 ||
+    access_state == ACCESS_Z3_TO_CPU ||
+    access_state == ACCESS_Z3_TO_Z3 ||
+    access_state == ACCESS_Z2_TO_CPU;
+
+wire zorro_local_translation_state =
+    access_state == ACCESS_Z3_TO_CPU ||
+    access_state == ACCESS_Z2_TO_CPU;
+
+wire slave_collision =
+    multiple_slaves_asserted_in ||
+    slave_collision_sync[1] ||
+    (zorro_local_translation_state && any_slave_asserted_in);
+
+wire zorro_error_request =
+    zorro_cycle_state &&
+    (!bint_n_in || !bint_n_sync[1] || slave_collision);
 
 // State machine.
 always @(posedge clk100) begin
@@ -303,6 +348,12 @@ always @(posedge clk100) begin
         cinh_n_out <= 1'b1;
         cinh_n_oe <= 1'b0;
 
+        bint_n_out <= 1'b1;
+        bint_n_oe <= 1'b0;
+
+        berr_n_out <= 1'b1;
+        berr_n_oe <= 1'b0;
+
         // Internal state.
         access_state <= ACCESS_IDLE;
 
@@ -317,6 +368,9 @@ always @(posedge clk100) begin
 
         z2_to_cpu_state <= 3'd0;
 
+        bus_error_active <= 1'b0;
+        bus_error_drive_bint <= 1'b0;
+
     end else if (!reset_n_sync[2]) begin // Coming out of reset.
 
         aboe_n_oe <= 3'b111;
@@ -329,6 +383,52 @@ always @(posedge clk100) begin
 
     end else begin // Normal operations.
 
+        if (zorro_error_request && access_state != ACCESS_ERROR) begin
+            bus_error_active <= 1'b1;
+            bus_error_drive_bint <= slave_collision;
+
+            berr_n_out <= 1'b0;
+            berr_n_oe <= 1'b1;
+
+            if (slave_collision) begin
+                bint_n_out <= 1'b0;
+                bint_n_oe <= 1'b1;
+            end
+
+            fcs_n_out <= 1'b1;
+            ccs_n_out <= 1'b1;
+            doe_out <= 1'b0;
+            eds_n_out <= 4'b1111;
+
+            dboe_n_out <= 2'b11;
+            db16_n_out <= 1'b1;
+            dblt_out <= 1'b0;
+
+            dsack_n_out <= 2'b11;
+            dsack_n_oe <= 2'b00;
+            sterm_n_out <= 1'b1;
+            sterm_n_oe <= 1'b0;
+            ciin_n_out <= 1'b1;
+            ciin_n_oe <= 1'b0;
+
+            dtack_n_out <= 1'b1;
+            dtack_n_oe <= 1'b0;
+            cinh_n_out <= 1'b1;
+            cinh_n_oe <= 1'b0;
+
+            as_n_out <= 1'b1;
+            ds_n_out <= 1'b1;
+
+            cpu_to_z3_state <= 3'd0;
+            terminate_access_counter <= 8'd0;
+            cpu_to_z2_state <= 3'd0;
+            z2_state <= 3'd0;
+            z3_to_cpu_state <= 3'd0;
+            z2_to_cpu_state <= 3'd0;
+
+            access_state <= ACCESS_ERROR;
+
+        end else begin
         case (access_state)
             ACCESS_IDLE: begin
                 aboe_n_out <= bm_state == BM_Z2 ? 3'b100 : 3'b000;
@@ -788,7 +888,33 @@ always @(posedge clk100) begin
 
                 endcase
             end
+
+            ACCESS_ERROR: begin
+                berr_n_out <= 1'b0;
+                berr_n_oe <= bus_error_active;
+
+                if (bus_error_drive_bint) begin
+                    bint_n_out <= 1'b0;
+                    bint_n_oe <= 1'b1;
+                end else begin
+                    bint_n_out <= 1'b1;
+                    bint_n_oe <= 1'b0;
+                end
+
+                if (as_n_in && fcs_n_in && ccs_n_in && fcs_n_sync[1] && ccs_n_sync[1]) begin
+                    berr_n_out <= 1'b1;
+                    berr_n_oe <= 1'b0;
+                    bint_n_out <= 1'b1;
+                    bint_n_oe <= 1'b0;
+
+                    bus_error_active <= 1'b0;
+                    bus_error_drive_bint <= 1'b0;
+
+                    access_state <= ACCESS_IDLE;
+                end
+            end
         endcase
+        end
     end
 end
 
