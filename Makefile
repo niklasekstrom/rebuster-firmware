@@ -13,8 +13,10 @@ REVISIONS := rev1 rev2
 define run_quartus
 	cd $(PROJECT_DIR) && \
 		qpf_backup=$$(mktemp $(PROJECT).qpf.XXXXXX) && \
+		qsf_backup=$$(mktemp $(REV).qsf.XXXXXX) && \
 		cp $(PROJECT).qpf $$qpf_backup && \
-		trap 'mv "$$qpf_backup" $(PROJECT).qpf' EXIT INT TERM HUP && \
+		cp $(REV).qsf $$qsf_backup && \
+		trap 'mv "$$qpf_backup" $(PROJECT).qpf; mv "$$qsf_backup" $(REV).qsf' EXIT INT TERM HUP && \
 		$(1)
 endef
 
