@@ -145,6 +145,7 @@ reg [2:0] slave_collision_sync = 3'b000;
 reg [2:0] all_eds_n_sync = 3'b111;
 reg [3:0] both_dsack_asserted_sync = 4'b0000;
 reg [3:0] dsack1_only_sync = 4'b0000;
+reg [3:0] single_dsack_asserted_sync = 4'b0000;
 
 wire [4:0] slave_asserted_in = ~slave_n_in;
 wire any_slave_asserted_in = |slave_asserted_in;
@@ -172,6 +173,8 @@ always @(posedge clk100) begin
     all_eds_n_sync <= {all_eds_n_sync[1:0], &eds_n_in};
     both_dsack_asserted_sync <= {both_dsack_asserted_sync[2:0], dsack_n_in == 2'b00};
     dsack1_only_sync <= {dsack1_only_sync[2:0], dsack_n_in == 2'b01};
+    single_dsack_asserted_sync <= {single_dsack_asserted_sync[2:0],
+        dsack_n_in == 2'b01 || dsack_n_in == 2'b10};
 end
 
 wire c7m_rising = c7m_sync[2:1] == 2'b01;
@@ -376,11 +379,48 @@ wire cpu_to_z2_rmw_address_error =
     address_decode_stable[2] &&
     !zorro2_space_selected;
 
+wire z3_to_cpu_valid_local_termination =
+    both_dsack_asserted_sync[3] ||
+    !sterm_n_delayed[1];
+
+wire z2_to_cpu_valid_local_termination =
+    both_dsack_asserted_sync[3] ||
+    dsack1_only_sync[3] ||
+    !sterm_n_delayed[1];
+
+wire z3_to_cpu_invalid_termination =
+    access_state == ACCESS_Z3_TO_CPU &&
+    z3_to_cpu_state == 3'd3 &&
+    cpuclk_falling &&
+    !z3_to_cpu_valid_local_termination &&
+    single_dsack_asserted_sync[3];
+
+wire z3_to_cpu_timeout =
+    access_state == ACCESS_Z3_TO_CPU &&
+    z3_to_cpu_state == 3'd3 &&
+    cpuclk_falling &&
+    !z3_to_cpu_valid_local_termination &&
+    !single_dsack_asserted_sync[3] &&
+    terminate_access_counter == 8'd0;
+
+wire z2_to_cpu_timeout =
+    access_state == ACCESS_Z2_TO_CPU &&
+    z2_to_cpu_state == 3'd3 &&
+    cpuclk_falling &&
+    !z2_to_cpu_valid_local_termination &&
+    terminate_access_counter == 8'd0;
+
+wire zorro_master_local_error =
+    z3_to_cpu_timeout ||
+    z2_to_cpu_timeout ||
+    z3_to_cpu_invalid_termination;
+
 wire zorro_error_request =
     (zorro_cycle_state &&
         (!bint_n_in || !bint_n_sync[1] || slave_collision)) ||
     cpu_to_z3_timeout ||
-    cpu_to_z2_rmw_address_error;
+    cpu_to_z2_rmw_address_error ||
+    zorro_master_local_error;
 
 wire z2_sloppy_lines_idle =
     dtack_n_in && dtack_n_sync[1] &&
@@ -509,12 +549,12 @@ always @(posedge clk100) begin
 
         if (zorro_error_request && access_state != ACCESS_ERROR) begin
             bus_error_active <= 1'b1;
-            bus_error_drive_bint <= slave_collision;
+            bus_error_drive_bint <= slave_collision || zorro_master_local_error;
 
             berr_n_out <= 1'b0;
             berr_n_oe <= 1'b1;
 
-            if (slave_collision) begin
+            if (slave_collision || zorro_master_local_error) begin
                 bint_n_out <= 1'b0;
                 bint_n_oe <= 1'b1;
             end
@@ -1120,12 +1160,14 @@ always @(posedge clk100) begin
                         if (cpuclk_falling) begin
                             ds_n_out <= 1'b0;
 
+                            terminate_access_counter <= 8'd40;
+
                             z3_to_cpu_state <= 3'd3;
                         end
                     end
                     3'd3: begin // S4 -> S5
                         if (cpuclk_falling) begin
-                            if (both_dsack_asserted_sync[3] || !sterm_n_delayed[1]) begin
+                            if (z3_to_cpu_valid_local_termination) begin
 
                                 if (!rw_out) begin
                                     as_n_out <= 1'b1;
@@ -1136,6 +1178,8 @@ always @(posedge clk100) begin
                                 dtack_n_oe <= 1'b1;
 
                                 z3_to_cpu_state <= 3'd4;
+                            end else if (terminate_access_counter != 8'd0) begin
+                                terminate_access_counter <= terminate_access_counter - 8'd1;
                             end
                         end
                     end
@@ -1211,6 +1255,8 @@ always @(posedge clk100) begin
                         if (cpuclk_falling) begin
                             ds_n_out <= 1'b0;
 
+                            terminate_access_counter <= 8'd40;
+
                             z2_to_cpu_state <= 3'd3;
                         end
                     end
@@ -1246,6 +1292,8 @@ always @(posedge clk100) begin
 
                                     z2_to_cpu_state <= 3'd4;
                                 end
+                            end else if (terminate_access_counter != 8'd0) begin
+                                terminate_access_counter <= terminate_access_counter - 8'd1;
                             end
                         end
                     end
