@@ -124,6 +124,7 @@ reg [2:0] slave_collision_sync = 3'b000;
 
 reg [2:0] all_eds_n_sync = 3'b111;
 reg [3:0] all_dsack_n_sync = 4'b1111;
+reg [3:0] both_dsack_asserted_sync = 4'b0000;
 
 wire [4:0] slave_asserted_in = ~slave_n_in;
 wire any_slave_asserted_in = |slave_asserted_in;
@@ -145,6 +146,7 @@ always @(posedge clk100) begin
 
     all_eds_n_sync <= {all_eds_n_sync[1:0], &eds_n_in};
     all_dsack_n_sync <= {all_dsack_n_sync[2:0], &dsack_n_in};
+    both_dsack_asserted_sync <= {both_dsack_asserted_sync[2:0], dsack_n_in == 2'b00};
 end
 
 wire c7m_rising = c7m_sync[2:1] == 2'b01;
@@ -766,7 +768,7 @@ always @(posedge clk100) begin
                     end
                     3'd3: begin // S4 -> S5
                         if (cpuclk_falling) begin
-                            if (!all_dsack_n_sync[3] || !sterm_n_delayed[1]) begin
+                            if (both_dsack_asserted_sync[3] || !sterm_n_delayed[1]) begin
 
                                 if (!rw_out) begin
                                     as_n_out <= 1'b1;
