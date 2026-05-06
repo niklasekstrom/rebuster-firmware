@@ -66,6 +66,7 @@ module rebuster_top(
     inout [1:0] DSACK_n,    // Data Transfer and Size Acknowledge
     inout STERM_n,          // Synchronous Termination
     inout CIIN_n,           // Cache Inhibit In
+    inout RMC_n,            // Read-Modify-Write Cycle
 
     // Zorro interface
     // http://amigadev.elowar.com/read/ADCD_2.1/Hardware_Manual_guide/node02C9.html
@@ -97,8 +98,6 @@ module rebuster_top(
     input CDAC_n,
 
     input HLT_n,            // Halt, unused
-
-    inout RMC_n,            // Read-Modify-Write Cycle
 
     input CBREQ_n,          // Cache Burst Request
     output CBACK_n,         // Cache Burst Acknowledge
@@ -249,6 +248,12 @@ wire ciin_n_out;
 wire ciin_n_oe;
 assign ciin_n_in = CIIN_n;
 assign CIIN_n = ciin_n_oe ? ciin_n_out : 1'bz;
+
+wire rmc_n_in;
+wire rmc_n_out;
+wire rmc_n_oe;
+assign rmc_n_in = RMC_n;
+assign RMC_n = rmc_n_oe ? rmc_n_out : 1'bz;
 
 wire [3:1] ea_in;
 wire [3:1] ea_out;
@@ -444,6 +449,10 @@ rebuster_core core(
     .ciin_n_in(ciin_n_in),
     .ciin_n_out(ciin_n_out),
     .ciin_n_oe(ciin_n_oe),
+
+    .rmc_n_in(rmc_n_in),
+    .rmc_n_out(rmc_n_out),
+    .rmc_n_oe(rmc_n_oe),
 
     .ea_in(ea_in),
     .ea_out(ea_out),

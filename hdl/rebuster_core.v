@@ -90,6 +90,10 @@ module rebuster_core(
     output ciin_n_out,
     output ciin_n_oe,
 
+    input rmc_n_in,
+    output rmc_n_out,
+    output reg rmc_n_oe,
+
     input [3:1] ea_in,
     output [3:1] ea_out,
     output reg [3:1] ea_oe,
@@ -138,7 +142,7 @@ module rebuster_core(
 Notes:
 - Doesn't handle EBCLR_n. The pin is likely not used by any Z2 or Z3 boards.
 - Doesn't handle Multiple Transfer Cycles.
-- No handling of Read-Modify-Write cycles (RMC/LOCK).
+- Doesn't handle Zorro II Read-Modify-Write cycles.
 */
 
 // Synchronize asynchronous signals.
@@ -210,6 +214,7 @@ always @(*) begin
     rw_oe <= cpu_ctrl_oe;
     as_n_oe <= cpu_ctrl_oe;
     ds_n_oe <= cpu_ctrl_oe;
+    rmc_n_oe <= cpu_ctrl_oe;
 end
 
 access access(
@@ -279,6 +284,9 @@ access access(
     .ciin_n_in(ciin_n_in),
     .ciin_n_out(ciin_n_out),
     .ciin_n_oe(ciin_n_oe),
+
+    .rmc_n_in(rmc_n_in),
+    .rmc_n_out(rmc_n_out),
 
     // Zorro control.
     .ea_in(ea_in),

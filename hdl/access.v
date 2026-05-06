@@ -66,6 +66,9 @@ module access(
     output reg ciin_n_out = 1'b1,
     output reg ciin_n_oe = 1'b0,
 
+    input rmc_n_in,
+    output reg rmc_n_out = 1'b1,
+
     // Zorro control.
     input [3:1] ea_in,
     output reg [3:1] ea_out = 3'b000,
@@ -355,6 +358,7 @@ always @(posedge clk100) begin
         rw_out <= 1'b1;
         as_n_out <= 1'b1;
         ds_n_out <= 1'b1;
+        rmc_n_out <= 1'b1;
 
         // CPU access termination.
         dsack_n_out <= 2'b11;
@@ -453,6 +457,7 @@ always @(posedge clk100) begin
 
             as_n_out <= 1'b1;
             ds_n_out <= 1'b1;
+            rmc_n_out <= 1'b1;
 
             cpu_to_z3_state <= 3'd0;
             terminate_access_counter <= 8'd0;
@@ -477,7 +482,7 @@ always @(posedge clk100) begin
                         if (cpuclk_rising && !as_n_in) begin
                             // If this later turns out to be a Z2 access then
                             // ea_out has to be updated.
-                            ea_out <= {a_in[3:2], 1'b1};
+                            ea_out <= {a_in[3:2], rmc_n_in};
                             read_out <= rw_in;
 
                             d2p_n_out <= !rw_in;
@@ -530,6 +535,8 @@ always @(posedge clk100) begin
             end
 
             ACCESS_CPU_TO_Z3: begin
+                ea_out[1] <= rmc_n_in;
+
                 case (cpu_to_z3_state)
                     3'd0: begin
                         if (cpuclk_rising) begin
@@ -776,6 +783,7 @@ always @(posedge clk100) begin
                             a_out <= next_z3_a;
                             siz_out <= next_z3_siz;
                             rw_out <= read_in;
+                            rmc_n_out <= ea_in[1];
 
                             dboe_n_out <= 2'b00;
                             d2p_n_out <= read_in;
@@ -834,6 +842,7 @@ always @(posedge clk100) begin
                         if (!rw_out || cpuclk_falling) begin
                             as_n_out <= 1'b1;
                             ds_n_out <= 1'b1;
+                            rmc_n_out <= 1'b1;
 
                             z3_to_cpu_state <= 3'd0;
 
@@ -858,6 +867,7 @@ always @(posedge clk100) begin
                             a_out <= next_z2_a;
                             siz_out <= next_z2_siz;
                             rw_out <= read_in;
+                            rmc_n_out <= 1'b1;
 
                             if (!read_in || !ea_in[1]) begin
                                 dboe_n_out <= 2'b01;
