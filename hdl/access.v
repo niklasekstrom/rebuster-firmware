@@ -120,8 +120,11 @@ reg [2:0] reset_n_sync = 3'b000;
 reg [2:0] fcs_n_sync = 3'b111;
 reg [2:0] ccs_n_sync = 3'b111;
 reg [2:0] dtack_n_sync = 3'b111;
+reg [2:0] cinh_n_sync = 3'b111;
+reg [2:0] mtcr_n_sync = 3'b111;
 reg [2:0] bint_n_sync = 3'b111;
 reg [2:0] wait_n_sync = 3'b111;
+reg [2:0] any_slave_asserted_sync = 3'b000;
 reg [2:0] slave_collision_sync = 3'b000;
 
 reg [2:0] all_eds_n_sync = 3'b111;
@@ -143,8 +146,11 @@ always @(posedge clk100) begin
     fcs_n_sync <= {fcs_n_sync[1:0], fcs_n_in};
     ccs_n_sync <= {ccs_n_sync[1:0], ccs_n_in};
     dtack_n_sync <= {dtack_n_sync[1:0], dtack_n_in};
+    cinh_n_sync <= {cinh_n_sync[1:0], cinh_n_in};
+    mtcr_n_sync <= {mtcr_n_sync[1:0], mtcr_n_in};
     bint_n_sync <= {bint_n_sync[1:0], bint_n_in};
     wait_n_sync <= {wait_n_sync[1:0], wait_n_in};
+    any_slave_asserted_sync <= {any_slave_asserted_sync[1:0], any_slave_asserted_in};
     slave_collision_sync <= {slave_collision_sync[1:0], multiple_slaves_asserted_in};
 
     all_eds_n_sync <= {all_eds_n_sync[1:0], &eds_n_in};
@@ -301,6 +307,12 @@ wire zorro_error_request =
     (zorro_cycle_state &&
         (!bint_n_in || !bint_n_sync[1] || slave_collision)) ||
     cpu_to_z3_timeout;
+
+wire z2_sloppy_lines_idle =
+    dtack_n_in && dtack_n_sync[1] &&
+    mtcr_n_in && mtcr_n_sync[1] &&
+    cinh_n_in && cinh_n_sync[1] &&
+    !any_slave_asserted_in && !any_slave_asserted_sync[1];
 
 // State machine.
 always @(posedge clk100) begin
@@ -467,7 +479,8 @@ always @(posedge clk100) begin
                             if (!addrz3_n_in && wait_n_sync[1]) begin
                                 fcs_n_out <= 1'b0;
                                 access_state <= ACCESS_CPU_TO_Z3;
-                            end else if ((!memz2_n_in || !ioz2_n_in) && wait_n_sync[1]) begin
+                            end else if ((!memz2_n_in || !ioz2_n_in) &&
+                                    wait_n_sync[1] && z2_sloppy_lines_idle) begin
                                 fcs_n_out <= 1'b0;
                                 access_state <= ACCESS_CPU_TO_Z2;
                             end else if (addrz3_n_in && memz2_n_in && ioz2_n_in) begin
