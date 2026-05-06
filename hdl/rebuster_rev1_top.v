@@ -36,7 +36,7 @@ module rebuster_top(
     input [4:0] EBR_n,      // Zx Bus Request
     output [4:0] EBG_n,     // Zx Bus Grant
     output EBCLR_n,         // Zx Bus Request Pending
-    input EBGACK_n,         // Z2 Bus Grant Acknowledge
+    inout EBGACK_n,         // Z2 Bus Grant Acknowledge
 
     inout OWN_n,            // Address bus direction, also driven by Z2 master
 
@@ -147,7 +147,9 @@ wire ebclr_n_out;
 assign EBCLR_n = ebclr_n_out;
 
 wire ebgack_n_in;
+wire ebgack_n_oe;
 assign ebgack_n_in = EBGACK_n;
+assign EBGACK_n = ebgack_n_oe ? 1'b0 : 1'bz;
 
 wire own_n_in;
 wire own_n_out;
@@ -411,6 +413,7 @@ rebuster_core core(
     .ebclr_n_out(ebclr_n_out),
 
     .ebgack_n_in(ebgack_n_in),
+    .ebgack_n_oe(ebgack_n_oe),
 
     .own_n_in(own_n_in),
     .own_n_out(own_n_out),

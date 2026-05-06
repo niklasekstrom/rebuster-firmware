@@ -32,6 +32,7 @@ module rebuster_core(
     output ebclr_n_out,
 
     input ebgack_n_in,
+    output ebgack_n_oe,
 
     input own_n_in,
     output own_n_out,
@@ -200,6 +201,7 @@ bus_arbitration bus_arbitration(
     .ebclr_n_out(ebclr_n_out),
 
     .ebgack_n_in(ebgack_n_in),
+    .ebgack_n_oe(ebgack_n_oe),
 
     .own_n_in(own_n_in),
     .own_n_out(own_n_out),

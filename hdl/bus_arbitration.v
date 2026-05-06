@@ -34,6 +34,7 @@ module bus_arbitration(
     output reg ebclr_n_out = 1'b1,
 
     input ebgack_n_in,
+    output reg ebgack_n_oe = 1'b0,
 
     input own_n_in,
     output reg own_n_out = 1'b1,
@@ -175,6 +176,8 @@ always @(posedge clk100) begin
 
         ebclr_n_out <= 1'b1;
 
+        ebgack_n_oe <= 1'b0;
+
         own_n_out <= 1'b1;
         own_n_oe <= 1'b0;
 
@@ -250,6 +253,8 @@ always @(posedge clk100) begin
 
                             own_n_out <= 1'b0;
                             own_n_oe <= 1'b1;
+
+                            ebgack_n_oe <= 1'b1;
 
                             bgack_n_out <= 1'b0;
                             bgack_n_oe <= 1'b1;
@@ -345,6 +350,8 @@ always @(posedge clk100) begin
                             own_n_out <= 1'b1;
                             own_n_oe <= 1'b1;
 
+                            ebgack_n_oe <= 1'b0;
+
                             // Negating BGACK at the same time as OWN is not a
                             // problem, because the CPU will synchronize BGACK
                             // before using it, so there is sufficient time for
@@ -357,6 +364,7 @@ always @(posedge clk100) begin
                     end
                     3'd6: begin
                         own_n_oe <= 1'b0;
+                        ebgack_n_oe <= 1'b0;
                         bgack_n_oe <= 1'b0;
 
                         z3_grant <= 5'b00000;
