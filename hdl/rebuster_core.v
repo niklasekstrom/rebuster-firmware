@@ -194,7 +194,9 @@ bus_arbitration bus_arbitration(
 
     .own_n_in(own_n_in),
     .own_n_out(own_n_out),
-    .own_n_oe(own_n_oe)
+    .own_n_oe(own_n_oe),
+
+    .z3_lock_n_in(ea_in[1])
 );
 
 wire zorro_ctrl_oe = reset_n_sync[2] && own_n_in;

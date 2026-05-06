@@ -35,7 +35,9 @@ module bus_arbitration(
 
     input own_n_in,
     output reg own_n_out = 1'b1,
-    output reg own_n_oe = 1'b0
+    output reg own_n_oe = 1'b0,
+
+    input z3_lock_n_in
 );
 
 // Synchronize asynchronous signals.
@@ -47,6 +49,7 @@ reg [2:0] bgack_n_sync = 3'b111;
 reg [2:0] sbr_n_sync = 3'b111;
 reg [2:0] ebgack_n_sync = 3'b111;
 reg [2:0] own_n_sync = 3'b111;
+reg [2:0] z3_lock_n_sync = 3'b111;
 
 always @(posedge clk100) begin
     c7m_sync <= {c7m_sync[1:0], c7m_in};
@@ -57,6 +60,7 @@ always @(posedge clk100) begin
     sbr_n_sync <= {sbr_n_sync[1:0], sbr_n_in};
     ebgack_n_sync <= {ebgack_n_sync[1:0], ebgack_n_in};
     own_n_sync <= {own_n_sync[1:0], own_n_in};
+    z3_lock_n_sync <= {z3_lock_n_sync[1:0], z3_lock_n_in};
 end
 
 wire c7m_rising = c7m_sync[2:1] == 2'b01;
@@ -95,18 +99,45 @@ reg [1:0] ba_state = BA_NONE;
 
 reg [2:0] z3_ba_state = 3'd0;
 
+localparam [3:0] Z3_ATOM_CYCLES = 4'd8;
+localparam [9:0] Z3_GRANT_TIMEOUT = 10'd1000;
+
 // A pulse is if EBR is high, low, high on subsequent falling C7M edges.
 wire [4:0] z3_register_pulse = ebr_n_falling_1 & ~ebr_n_falling_0 & ebr_n_sync_1;
 
 reg [4:0] z3_requests = 5'b00000;
+reg [4:0] z3_used = 5'b00000;
 reg [4:0] z3_grant = 5'b00000;
+reg [3:0] z3_atom_cycle_count = 4'd0;
+reg [9:0] z3_grant_timeout_counter = 10'd0;
+reg z3_reschedule_pending = 1'b0;
+reg access_state_idle_prev = 1'b1;
+
+wire [4:0] z3_requests_after_pulses =
+    c7m_falling ? (z3_requests ^ z3_register_pulse) : z3_requests;
+wire [4:0] z3_used_after_pulses = z3_used & z3_requests_after_pulses;
+wire [4:0] z3_unused_requests = z3_requests & ~z3_used;
+wire [4:0] z3_schedule_requests =
+    (|z3_unused_requests) ? z3_unused_requests : z3_requests;
 wire [4:0] next_z3_grant;
 
 round_robin_priority_encoder z3_rrpe(
-    .requests(z3_requests),
+    .requests(z3_schedule_requests),
     .previous_grant(z3_grant),
     .grant(next_z3_grant)
 );
+
+wire z3_cycle_started =
+    ba_state == BA_Z3 &&
+    z3_ba_state == 3'd3 &&
+    access_state_idle_prev &&
+    !access_state_idle;
+
+wire z3_cycle_ended =
+    ba_state == BA_Z3 &&
+    z3_ba_state == 3'd3 &&
+    !access_state_idle_prev &&
+    access_state_idle;
 
 reg [1:0] z2_ba_state = 2'd0;
 
@@ -149,7 +180,12 @@ always @(posedge clk100) begin
         z3_ba_state <= 3'd0;
 
         z3_requests <= 5'b0;
+        z3_used <= 5'b0;
         z3_grant <= 5'b0;
+        z3_atom_cycle_count <= 4'd0;
+        z3_grant_timeout_counter <= 10'd0;
+        z3_reschedule_pending <= 1'b0;
+        access_state_idle_prev <= 1'b1;
 
         z2_ba_state <= 2'd0;
 
@@ -163,9 +199,12 @@ always @(posedge clk100) begin
 
     end else begin // Normal operations.
 
+        access_state_idle_prev <= access_state_idle;
+
         // Handle Z3 register/deregister pulses.
         if (c7m_falling) begin
-            z3_requests <= z3_requests ^ z3_register_pulse;
+            z3_requests <= z3_requests_after_pulses;
+            z3_used <= z3_used_after_pulses;
         end
 
         // Logic for multiplexing bus arbitration.
@@ -212,10 +251,21 @@ always @(posedge clk100) begin
                     end
                     3'd1: begin
                         if (cpuclk_falling) begin
+                            if (!(|z3_unused_requests)) begin
+                                z3_used <= 5'b00000;
+                            end
+
                             z3_grant <= next_z3_grant;
                             ebg_n_out <= ~next_z3_grant;
+                            z3_atom_cycle_count <= 4'd0;
+                            z3_grant_timeout_counter <= Z3_GRANT_TIMEOUT;
+                            z3_reschedule_pending <= 1'b0;
 
-                            z3_ba_state <= 2'd2;
+                            if (next_z3_grant == 5'b00000) begin
+                                z3_ba_state <= 3'd4;
+                            end else begin
+                                z3_ba_state <= 3'd2;
+                            end
                         end
                     end
                     3'd2: begin
@@ -226,17 +276,58 @@ always @(posedge clk100) begin
                         end
                     end
                     3'd3: begin
-                        // Let board do as many requests as it pleases.
-                        // Eventually it'll run out of data to copy and
-                        // then it returns bus mastery to the cpu.
+                        // Negating EBG during a Zorro III cycle tells the
+                        // active master that this is its last cycle.
                         if (!(|(z3_requests & z3_grant))) begin
                             ebg_n_out <= 5'b11111;
-                            z3_ba_state <= 3'd4;
+                            z3_reschedule_pending <= 1'b1;
+
+                            if (access_state_idle) begin
+                                z3_ba_state <= 3'd4;
+                            end
+                        end else if (z3_cycle_started) begin
+                            z3_used <= (z3_used_after_pulses | z3_grant) & z3_requests_after_pulses;
+                            z3_grant_timeout_counter <= Z3_GRANT_TIMEOUT;
+
+                            if (z3_atom_cycle_count < Z3_ATOM_CYCLES) begin
+                                z3_atom_cycle_count <= z3_atom_cycle_count + 4'd1;
+                            end
+
+                            if (z3_atom_cycle_count >= Z3_ATOM_CYCLES - 4'd1 && z3_lock_n_sync[1]) begin
+                                ebg_n_out <= 5'b11111;
+                                z3_reschedule_pending <= 1'b1;
+                            end
+                        end else if (z3_cycle_ended) begin
+                            z3_grant_timeout_counter <= Z3_GRANT_TIMEOUT;
+
+                            if (z3_reschedule_pending) begin
+                                z3_ba_state <= 3'd4;
+                            end
+                        end else if (access_state_idle) begin
+                            if (z3_reschedule_pending) begin
+                                z3_ba_state <= 3'd4;
+                            end else if (z3_atom_cycle_count >= Z3_ATOM_CYCLES && z3_lock_n_sync[1]) begin
+                                ebg_n_out <= 5'b11111;
+                                z3_reschedule_pending <= 1'b1;
+                                z3_ba_state <= 3'd4;
+                            end else if (z3_grant_timeout_counter == 10'd0) begin
+                                z3_requests <= z3_requests_after_pulses & ~z3_grant;
+                                z3_used <= z3_used_after_pulses & ~z3_grant;
+                                ebg_n_out <= 5'b11111;
+                                z3_reschedule_pending <= 1'b1;
+                                z3_ba_state <= 3'd4;
+                            end else begin
+                                z3_grant_timeout_counter <= z3_grant_timeout_counter - 10'd1;
+                            end
                         end
                     end
                     3'd4: begin
                         if (access_state_idle && cpuclk_rising) begin
-                            z3_ba_state <= 3'd5;
+                            if (|z3_requests) begin
+                                z3_ba_state <= 3'd1;
+                            end else begin
+                                z3_ba_state <= 3'd5;
+                            end
                         end
                     end
                     3'd5: begin
@@ -259,6 +350,12 @@ always @(posedge clk100) begin
                     3'd6: begin
                         own_n_oe <= 1'b0;
                         bgack_n_oe <= 1'b0;
+
+                        z3_grant <= 5'b00000;
+                        z3_used <= 5'b00000;
+                        z3_atom_cycle_count <= 4'd0;
+                        z3_grant_timeout_counter <= 10'd0;
+                        z3_reschedule_pending <= 1'b0;
 
                         z3_ba_state <= 3'd0;
                         ba_state <= BA_NONE;
