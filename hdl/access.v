@@ -186,9 +186,13 @@ always @(*) begin
 end
 
 reg [3:0] next_z2_eds_n;
+reg cpu_to_z2_mem_cycle = 1'b0;
+reg cpu_to_z2_io_cycle = 1'b0;
 
 always @(*) begin
-    if (!a_in[0]) begin // Even address.
+    if (cpu_to_z2_mem_cycle && rw_in) begin
+        next_z2_eds_n <= 4'b0011;
+    end else if (!a_in[0]) begin // Even address.
         if (siz_in == 2'd1) begin
             next_z2_eds_n <= 4'b0111;
         end else begin
@@ -392,6 +396,8 @@ always @(posedge clk100) begin
 
         cpu_to_z2_state <= 3'd0;
         z2_state <= 3'd0;
+        cpu_to_z2_mem_cycle <= 1'b0;
+        cpu_to_z2_io_cycle <= 1'b0;
 
         z3_to_cpu_state <= 3'd0;
 
@@ -452,6 +458,8 @@ always @(posedge clk100) begin
             terminate_access_counter <= 8'd0;
             cpu_to_z2_state <= 3'd0;
             z2_state <= 3'd0;
+            cpu_to_z2_mem_cycle <= 1'b0;
+            cpu_to_z2_io_cycle <= 1'b0;
             z3_to_cpu_state <= 3'd0;
             z2_to_cpu_state <= 3'd0;
 
@@ -484,6 +492,8 @@ always @(posedge clk100) begin
                             end else if (zorro2_space_selected &&
                                     wait_n_sync[1] && z2_sloppy_lines_idle) begin
                                 fcs_n_out <= 1'b0;
+                                cpu_to_z2_mem_cycle <= !memz2_n_in;
+                                cpu_to_z2_io_cycle <= !ioz2_n_in;
                                 access_state <= ACCESS_CPU_TO_Z2;
                             end else if (addrz3_n_in && memz2_n_in && ioz2_n_in) begin
                                 access_state <= ACCESS_CPU_TO_OTHER;
@@ -616,7 +626,7 @@ always @(posedge clk100) begin
 
                             dblt_out <= rw_in;
 
-                            ciin_n_out <= ioz2_n_in;
+                            ciin_n_out <= !cpu_to_z2_io_cycle;
 
                             cpu_to_z2_state <= 3'd1;
                         end
@@ -674,6 +684,8 @@ always @(posedge clk100) begin
                             aboe_n_out <= 3'b000;
 
                             cpu_to_z2_state <= 3'd0;
+                            cpu_to_z2_mem_cycle <= 1'b0;
+                            cpu_to_z2_io_cycle <= 1'b0;
 
                             access_state <= ACCESS_IDLE;
                         end
