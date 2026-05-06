@@ -129,6 +129,7 @@ set_location_assignment PIN_K13 -to EDS_n[2]
 set_location_assignment PIN_A6 -to EDS_n[1]
 set_location_assignment PIN_F4 -to EDS_n[0]
 set_location_assignment PIN_A5 -to FCS_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to BIGZ_n
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to CCS_n
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to DOE
 set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to EDS_n[3]

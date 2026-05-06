@@ -571,6 +571,7 @@ always @(posedge clk100) begin
             dboe_n_out <= 2'b11;
             db16_n_out <= 1'b1;
             dblt_out <= 1'b0;
+            bigz_n_out <= 1'b1;
             cback_n_out <= 1'b1;
 
             dsack_n_out <= 2'b11;
@@ -620,7 +621,7 @@ always @(posedge clk100) begin
         case (access_state)
             ACCESS_IDLE: begin
                 aboe_n_out <= bm_state == BM_Z2 ? 3'b100 : 3'b000;
-                bigz_n_out <= bm_state == BM_Z2 ? 1'b0 : 1'b1;
+                bigz_n_out <= 1'b1;
 
                 case (bm_state)
                     BM_CPU: begin
@@ -684,6 +685,7 @@ always @(posedge clk100) begin
                             if (zorro2_space_selected) begin
                                 access_state <= ACCESS_ZORRO_LOCAL;
                             end else begin
+                                bigz_n_out <= 1'b0;
                                 access_state <= ACCESS_Z2_TO_CPU;
                             end
                         end
@@ -1235,6 +1237,8 @@ always @(posedge clk100) begin
             end
 
             ACCESS_Z2_TO_CPU: begin
+                bigz_n_out <= 1'b0;
+
                 case (z2_to_cpu_state)
                     3'd0: begin // Entering S0
                         if (cpuclk_rising && !all_eds_n_sync[1]) begin
@@ -1333,6 +1337,7 @@ always @(posedge clk100) begin
                             ds_n_out <= 1'b1;
 
                             z2_to_cpu_state <= 3'd0;
+                            bigz_n_out <= 1'b1;
 
                             access_state <= ACCESS_IDLE;
                         end
