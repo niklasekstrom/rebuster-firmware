@@ -39,6 +39,7 @@ module rebuster_top(
     // Zorro bus master control
     input [4:0] EBR_n,      // Zx Bus Request
     output [4:0] EBG_n,     // Zx Bus Grant
+    output EBCLR_n,         // Zx Bus Request Pending
     input EBGACK_n,         // Z2 Bus Grant Acknowledge
 
     inout OWN_n,            // Address bus direction, also driven by Z2 master
@@ -108,7 +109,6 @@ module rebuster_top(
 
     input HLT_n,            // Halt, unused
 
-    input EBCLR_n,          // Bus Request Pending
     */
 );
 
@@ -151,6 +151,9 @@ assign EBG_n[3] = ebg_n_oe[3] ? ebg_n_out[3] : 1'bz;
 assign EBG_n[2] = ebg_n_oe[2] ? ebg_n_out[2] : 1'bz;
 assign EBG_n[1] = ebg_n_oe[1] ? ebg_n_out[1] : 1'bz;
 assign EBG_n[0] = ebg_n_oe[0] ? ebg_n_out[0] : 1'bz;
+
+wire ebclr_n_out;
+assign EBCLR_n = ebclr_n_out;
 
 wire ebgack_n_in;
 assign ebgack_n_in = EBGACK_n;
@@ -413,6 +416,8 @@ rebuster_core core(
 
     .ebg_n_out(ebg_n_out),
     .ebg_n_oe(ebg_n_oe),
+
+    .ebclr_n_out(ebclr_n_out),
 
     .ebgack_n_in(ebgack_n_in),
 

@@ -29,6 +29,8 @@ module rebuster_core(
     output [4:0] ebg_n_out,
     output [4:0] ebg_n_oe,
 
+    output ebclr_n_out,
+
     input ebgack_n_in,
 
     input own_n_in,
@@ -149,11 +151,6 @@ module rebuster_core(
     output berr_n_oe
 );
 
-/*
-Notes:
-- Doesn't handle EBCLR_n. The pin is likely not used by any Z2 or Z3 boards.
-*/
-
 // Synchronize asynchronous signals.
 reg [2:0] reset_n_sync = 3'b000;
 
@@ -199,6 +196,8 @@ bus_arbitration bus_arbitration(
 
     .ebg_n_out(ebg_n_out),
     .ebg_n_oe(ebg_n_oe),
+
+    .ebclr_n_out(ebclr_n_out),
 
     .ebgack_n_in(ebgack_n_in),
 

@@ -31,6 +31,8 @@ module bus_arbitration(
     output reg [4:0] ebg_n_out = 5'b11111,
     output reg [4:0] ebg_n_oe = 5'b00000,
 
+    output reg ebclr_n_out = 1'b1,
+
     input ebgack_n_in,
 
     input own_n_in,
@@ -144,6 +146,8 @@ reg [1:0] z2_ba_state = 2'd0;
 // EBR asserted on two consecutive falling C7M edges means Z2 board is requesting.
 wire [4:0] z2_requests = ~ebr_n_falling_1 & ~ebr_n_falling_0;
 reg [4:0] z2_grant = 5'b00000;
+reg [4:0] z2_active_grant = 5'b00000;
+wire [4:0] z2_unserviced_requests = z2_requests & ~z2_active_grant;
 wire [4:0] next_z2_grant;
 
 round_robin_priority_encoder z2_rrpe(
@@ -169,6 +173,8 @@ always @(posedge clk100) begin
         ebg_n_out <= 5'b11111;
         ebg_n_oe <= 5'b00000;
 
+        ebclr_n_out <= 1'b1;
+
         own_n_out <= 1'b1;
         own_n_oe <= 1'b0;
 
@@ -190,6 +196,7 @@ always @(posedge clk100) begin
         z2_ba_state <= 2'd0;
 
         z2_grant <= 5'b0;
+        z2_active_grant <= 5'b0;
 
     end else if (!reset_n_sync[2]) begin // Coming out of reset.
 
@@ -200,6 +207,7 @@ always @(posedge clk100) begin
     end else begin // Normal operations.
 
         access_state_idle_prev <= access_state_idle;
+        ebclr_n_out <= !(|z2_unserviced_requests);
 
         // Handle Z3 register/deregister pulses.
         if (c7m_falling) begin
@@ -375,6 +383,7 @@ always @(posedge clk100) begin
                             bgack_n_oe <= 1'b1;
 
                             z2_grant <= next_z2_grant;
+                            z2_active_grant <= next_z2_grant;
                             ebg_n_out <= ~next_z2_grant;
 
                             z2_ba_state <= 2'd1;
@@ -406,6 +415,8 @@ always @(posedge clk100) begin
                     end
                     2'd3: begin
                         bgack_n_oe <= 1'b0;
+
+                        z2_active_grant <= 5'b0;
 
                         z2_ba_state <= 2'd0;
                         ba_state <= BA_NONE;
