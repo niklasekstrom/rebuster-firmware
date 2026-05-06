@@ -859,9 +859,11 @@ always @(posedge clk100) begin
                             siz_out <= next_z2_siz;
                             rw_out <= read_in;
 
-                            if (!ea_in[1]) begin
+                            if (!read_in || !ea_in[1]) begin
                                 dboe_n_out <= 2'b01;
-                            end else begin
+                            end
+
+                            if (!read_in || ea_in[1]) begin
                                 db16_n_out <= 1'b0;
                             end
 
@@ -901,9 +903,9 @@ always @(posedge clk100) begin
 
                                 z2_to_cpu_state <= 3'd4;
                             end else if (dsack1_only_sync[3]) begin
-                                if (!db16_n_out) begin
+                                if (rw_out && !db16_n_out) begin
                                     // Single DSACK1* means a 16-bit local port; if the
-                                    // lower-half bridge was selected, switch before DTACK*.
+                                    // lower-half read bridge was selected, switch before DTACK*.
                                     db16_n_out <= 1'b1;
                                     dboe_n_out <= 2'b01;
 
