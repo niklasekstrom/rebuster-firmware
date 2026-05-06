@@ -285,9 +285,17 @@ wire slave_collision =
     slave_collision_sync[1] ||
     (zorro_local_translation_state && any_slave_asserted_in);
 
+wire cpu_to_z3_timeout =
+    access_state == ACCESS_CPU_TO_Z3 &&
+    cpu_to_z3_state == 3'd3 &&
+    clk90_rising &&
+    dtack_n_sync[1] &&
+    terminate_access_counter == 8'd0;
+
 wire zorro_error_request =
-    zorro_cycle_state &&
-    (!bint_n_in || !bint_n_sync[1] || slave_collision);
+    (zorro_cycle_state &&
+        (!bint_n_in || !bint_n_sync[1] || slave_collision)) ||
+    cpu_to_z3_timeout;
 
 // State machine.
 always @(posedge clk100) begin
@@ -524,28 +532,25 @@ always @(posedge clk100) begin
                             ciin_n_oe <= 1'b1;
                         end
 
-                        if (cpuclk_rising) begin
-                            if (!dtack_n_sync[1] || terminate_access_counter == 8'd0) begin
-                                dsack_n_out <= 2'b00; // 32 bit port.
-                                dsack_n_oe <= 2'b11; // Could potentially use STERM instead.
-
+                        if (clk90_rising) begin
+                            if (!dtack_n_sync[1]) begin
+                                sterm_n_out <= 1'b0;
+                                sterm_n_oe <= 1'b1;
                                 cpu_to_z3_state <= 3'd4;
-                            end else begin
+                            end else if (terminate_access_counter != 8'd0) begin
                                 terminate_access_counter <= terminate_access_counter - 8'd1;
                             end
                         end
                     end
                     3'd4: begin
-                        if (cpuclk_rising && as_n_in) begin
+                        if (clk90_rising && as_n_in) begin
                             fcs_n_out <= 1'b1;
                             eds_n_out <= 4'b1111;
 
                             dboe_n_out <= 2'b11;
 
-                            // DSACK_n is negated earlier than for real Buster.
-                            // I think this shouldn't be possible to observe for the Zorro board.
-                            // Negate DSACK_n/CIIN_n.
-                            dsack_n_out <= 2'b11;
+                            // Negate STERM_n/CIIN_n.
+                            sterm_n_out <= 1'b1;
                             ciin_n_out <= 1'b1;
 
                             cpu_to_z3_state <= 3'd5;
@@ -557,8 +562,8 @@ always @(posedge clk100) begin
                         doe_out <= 1'b0;
 
                         if (cpuclk_falling) begin
-                            // Stop driving DSACK_n/CIIN_n.
-                            dsack_n_oe <= 2'b00;
+                            // Stop driving STERM_n/CIIN_n.
+                            sterm_n_oe <= 1'b0;
                             ciin_n_oe <= 1'b0;
 
                             cpu_to_z3_state <= 3'd6;
