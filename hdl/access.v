@@ -1176,6 +1176,8 @@ always @(posedge clk100) begin
 
                                 dtack_n_out <= 1'b0;
                                 dtack_n_oe <= 1'b1;
+                                cinh_n_out <= ciin_n_in;
+                                cinh_n_oe <= !ciin_n_in;
 
                                 z3_to_cpu_state <= 3'd4;
                             end else if (terminate_access_counter != 8'd0) begin
@@ -1188,6 +1190,8 @@ always @(posedge clk100) begin
 
                             // Stop driving DTACK_n as soon as possible.
                             dtack_n_out <= 1'b1;
+                            cinh_n_out <= 1'b1;
+                            cinh_n_oe <= 1'b0;
 
                             // Stop driving data.
                             dboe_n_out <= 2'b11;
@@ -1197,6 +1201,7 @@ always @(posedge clk100) begin
                     end
                     3'd5: begin
                         dtack_n_oe <= 1'b0;
+                        cinh_n_oe <= 1'b0;
 
                         if (!rw_out || cpuclk_falling) begin
                             as_n_out <= 1'b1;
