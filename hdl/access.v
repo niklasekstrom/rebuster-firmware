@@ -249,13 +249,15 @@ wire [3:0] next_z2_a = {ea_in[3:1], eds_n_in[3]};
 
 wire [1:0] next_z2_siz = eds_n_in[3:2] == 2'b00 ? 2'b10 : 2'b01;
 
+wire zorro2_space_selected = !memz2_n_in || !ioz2_n_in;
+
 // State.
 localparam ACCESS_IDLE = 3'd0;
 localparam ACCESS_CPU_TO_Z3 = 3'd1;
 localparam ACCESS_CPU_TO_Z2 = 3'd2;
 localparam ACCESS_CPU_TO_OTHER = 3'd3;
 localparam ACCESS_Z3_TO_CPU = 3'd4;
-localparam ACCESS_Z3_TO_Z3 = 3'd5;
+localparam ACCESS_ZORRO_LOCAL = 3'd5;
 localparam ACCESS_Z2_TO_CPU = 3'd6;
 localparam ACCESS_ERROR = 3'd7;
 
@@ -284,7 +286,7 @@ wire zorro_cycle_state =
     access_state == ACCESS_CPU_TO_Z3 ||
     access_state == ACCESS_CPU_TO_Z2 ||
     access_state == ACCESS_Z3_TO_CPU ||
-    access_state == ACCESS_Z3_TO_Z3 ||
+    access_state == ACCESS_ZORRO_LOCAL ||
     access_state == ACCESS_Z2_TO_CPU;
 
 wire zorro_local_translation_state =
@@ -479,7 +481,7 @@ always @(posedge clk100) begin
                             if (!addrz3_n_in && wait_n_sync[1]) begin
                                 fcs_n_out <= 1'b0;
                                 access_state <= ACCESS_CPU_TO_Z3;
-                            end else if ((!memz2_n_in || !ioz2_n_in) &&
+                            end else if (zorro2_space_selected &&
                                     wait_n_sync[1] && z2_sloppy_lines_idle) begin
                                 fcs_n_out <= 1'b0;
                                 access_state <= ACCESS_CPU_TO_Z2;
@@ -492,7 +494,7 @@ always @(posedge clk100) begin
                     BM_Z3: begin
                         if (!fcs_n_sync[1]) begin
                             if (!addrz3_n_delayed[1]) begin
-                                access_state <= ACCESS_Z3_TO_Z3;
+                                access_state <= ACCESS_ZORRO_LOCAL;
                             end else begin
                                 access_state <= ACCESS_Z3_TO_CPU;
                             end
@@ -501,7 +503,11 @@ always @(posedge clk100) begin
 
                     BM_Z2: begin
                         if (!ccs_n_sync[1]) begin
-                            access_state <= ACCESS_Z2_TO_CPU;
+                            if (zorro2_space_selected) begin
+                                access_state <= ACCESS_ZORRO_LOCAL;
+                            end else begin
+                                access_state <= ACCESS_Z2_TO_CPU;
+                            end
                         end
                     end
                 endcase
@@ -825,10 +831,10 @@ always @(posedge clk100) begin
                 endcase
             end
 
-            ACCESS_Z3_TO_Z3: begin
-                // This is an access that is local to the Z3 bus. No translation needed!
-                // Access termination, etc, is handled by the bus master Z3 board.
-                if (fcs_n_sync[1]) begin
+            ACCESS_ZORRO_LOCAL: begin
+                // This is local to the Zorro bus. No 68030 translation is needed.
+                // Access termination is handled by the external Zorro master/slave.
+                if (fcs_n_sync[1] && ccs_n_sync[1]) begin
                     access_state <= ACCESS_IDLE;
                 end
             end
