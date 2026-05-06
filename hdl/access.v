@@ -98,8 +98,14 @@ module access(
     output reg cinh_n_oe = 1'b0,
 
     input mtcr_n_in,
+    output reg mtcr_n_out = 1'b1,
+    output reg mtcr_n_oe = 1'b0,
 
     input [4:0] slave_n_in,
+    output reg [4:0] slave_n_out = 5'b11111,
+    output reg [4:0] slave_n_oe = 5'b00000,
+
+    input [2:0] ms_in,
 
     input bint_n_in,
     output reg bint_n_out = 1'b1,
@@ -259,16 +265,17 @@ wire [1:0] next_z2_siz = eds_n_in[3:2] == 2'b00 ? 2'b10 : 2'b01;
 wire zorro2_space_selected = !memz2_n_in || !ioz2_n_in;
 
 // State.
-localparam ACCESS_IDLE = 3'd0;
-localparam ACCESS_CPU_TO_Z3 = 3'd1;
-localparam ACCESS_CPU_TO_Z2 = 3'd2;
-localparam ACCESS_CPU_TO_OTHER = 3'd3;
-localparam ACCESS_Z3_TO_CPU = 3'd4;
-localparam ACCESS_ZORRO_LOCAL = 3'd5;
-localparam ACCESS_Z2_TO_CPU = 3'd6;
-localparam ACCESS_ERROR = 3'd7;
+localparam ACCESS_IDLE = 4'd0;
+localparam ACCESS_CPU_TO_Z3 = 4'd1;
+localparam ACCESS_CPU_TO_Z2 = 4'd2;
+localparam ACCESS_CPU_TO_OTHER = 4'd3;
+localparam ACCESS_Z3_TO_CPU = 4'd4;
+localparam ACCESS_ZORRO_LOCAL = 4'd5;
+localparam ACCESS_Z2_TO_CPU = 4'd6;
+localparam ACCESS_ERROR = 4'd7;
+localparam ACCESS_CPU_QUICK_INTERRUPT = 4'd8;
 
-reg [2:0] access_state = ACCESS_IDLE;
+reg [3:0] access_state = ACCESS_IDLE;
 
 reg [2:0] address_decode_stable = 3'b000;
 reg [1:0] sterm_n_delayed = 2'b11;
@@ -286,6 +293,12 @@ reg [2:0] z3_to_cpu_state = 3'd0;
 
 reg [2:0] z2_to_cpu_state = 3'd0;
 
+reg [2:0] quick_interrupt_state = 3'd0;
+reg [1:0] quick_interrupt_poll_count = 2'd0;
+reg [3:0] quick_interrupt_timeout_counter = 4'd0;
+reg [4:0] quick_interrupt_requests = 5'b00000;
+reg [4:0] quick_interrupt_grant = 5'b00000;
+
 reg bus_error_active = 1'b0;
 reg bus_error_drive_bint = 1'b0;
 
@@ -296,16 +309,36 @@ wire zorro_cycle_state =
     access_state == ACCESS_CPU_TO_Z2 ||
     access_state == ACCESS_Z3_TO_CPU ||
     access_state == ACCESS_ZORRO_LOCAL ||
-    access_state == ACCESS_Z2_TO_CPU;
+    access_state == ACCESS_Z2_TO_CPU ||
+    access_state == ACCESS_CPU_QUICK_INTERRUPT;
 
 wire zorro_local_translation_state =
     access_state == ACCESS_Z3_TO_CPU ||
     access_state == ACCESS_Z2_TO_CPU;
 
+wire quick_interrupt_cycle_state =
+    access_state == ACCESS_CPU_QUICK_INTERRUPT;
+
 wire slave_collision =
-    multiple_slaves_asserted_in ||
-    slave_collision_sync[1] ||
-    (zorro_local_translation_state && any_slave_asserted_in);
+    !quick_interrupt_cycle_state &&
+    (multiple_slaves_asserted_in ||
+        slave_collision_sync[1] ||
+        (zorro_local_translation_state && any_slave_asserted_in));
+
+wire cpu_quick_interrupt_request =
+    ms_in == 3'b111 &&
+    rw_in &&
+    (a_in[3:1] == 3'd2 || a_in[3:1] == 3'd6);
+
+wire [4:0] quick_interrupt_pending_requests =
+    quick_interrupt_requests | slave_asserted_in;
+
+wire [4:0] next_quick_interrupt_grant =
+    quick_interrupt_pending_requests[0] ? 5'b00001 :
+    quick_interrupt_pending_requests[1] ? 5'b00010 :
+    quick_interrupt_pending_requests[2] ? 5'b00100 :
+    quick_interrupt_pending_requests[3] ? 5'b01000 :
+    quick_interrupt_pending_requests[4] ? 5'b10000 : 5'b00000;
 
 wire cpu_to_z3_timeout =
     access_state == ACCESS_CPU_TO_Z3 &&
@@ -396,6 +429,12 @@ always @(posedge clk100) begin
         cinh_n_out <= 1'b1;
         cinh_n_oe <= 1'b0;
 
+        mtcr_n_out <= 1'b1;
+        mtcr_n_oe <= 1'b0;
+
+        slave_n_out <= 5'b11111;
+        slave_n_oe <= 5'b00000;
+
         bint_n_out <= 1'b1;
         bint_n_oe <= 1'b0;
 
@@ -419,6 +458,12 @@ always @(posedge clk100) begin
         z3_to_cpu_state <= 3'd0;
 
         z2_to_cpu_state <= 3'd0;
+
+        quick_interrupt_state <= 3'd0;
+        quick_interrupt_poll_count <= 2'd0;
+        quick_interrupt_timeout_counter <= 4'd0;
+        quick_interrupt_requests <= 5'b00000;
+        quick_interrupt_grant <= 5'b00000;
 
         bus_error_active <= 1'b0;
         bus_error_drive_bint <= 1'b0;
@@ -467,6 +512,10 @@ always @(posedge clk100) begin
             dtack_n_oe <= 1'b0;
             cinh_n_out <= 1'b1;
             cinh_n_oe <= 1'b0;
+            mtcr_n_out <= 1'b1;
+            mtcr_n_oe <= 1'b0;
+            slave_n_out <= 5'b11111;
+            slave_n_oe <= 5'b00000;
 
             as_n_out <= 1'b1;
             ds_n_out <= 1'b1;
@@ -482,6 +531,11 @@ always @(posedge clk100) begin
             cpu_to_z2_rmw_second <= 1'b0;
             z3_to_cpu_state <= 3'd0;
             z2_to_cpu_state <= 3'd0;
+            quick_interrupt_state <= 3'd0;
+            quick_interrupt_poll_count <= 2'd0;
+            quick_interrupt_timeout_counter <= 4'd0;
+            quick_interrupt_requests <= 5'b00000;
+            quick_interrupt_grant <= 5'b00000;
 
             access_state <= ACCESS_ERROR;
 
@@ -497,8 +551,13 @@ always @(posedge clk100) begin
                         if (cpuclk_rising && !as_n_in) begin
                             // If this later turns out to be a Z2 access then
                             // ea_out has to be updated.
-                            ea_out <= {a_in[3:2], rmc_n_in};
-                            read_out <= rw_in;
+                            if (cpu_quick_interrupt_request) begin
+                                ea_out <= a_in[3:1];
+                                read_out <= 1'b1;
+                            end else begin
+                                ea_out <= {a_in[3:2], rmc_n_in};
+                                read_out <= rw_in;
+                            end
 
                             d2p_n_out <= !rw_in;
                         end
@@ -506,7 +565,19 @@ always @(posedge clk100) begin
                         // Falling edge going from S2 to S3.
                         // This should give address decoder enough time.
                         if (cpuclk_falling && !as_n_in && address_decode_stable[2]) begin
-                            if (!addrz3_n_in && wait_n_sync[1]) begin
+                            if (cpu_quick_interrupt_request &&
+                                    addrz3_n_in && memz2_n_in && ioz2_n_in &&
+                                    wait_n_sync[1]) begin
+                                fcs_n_out <= 1'b0;
+                                mtcr_n_out <= 1'b0;
+                                mtcr_n_oe <= 1'b1;
+                                quick_interrupt_state <= 3'd0;
+                                quick_interrupt_poll_count <= 2'd0;
+                                quick_interrupt_timeout_counter <= 4'd0;
+                                quick_interrupt_requests <= 5'b00000;
+                                quick_interrupt_grant <= 5'b00000;
+                                access_state <= ACCESS_CPU_QUICK_INTERRUPT;
+                            end else if (!addrz3_n_in && wait_n_sync[1]) begin
                                 fcs_n_out <= 1'b0;
                                 access_state <= ACCESS_CPU_TO_Z3;
                             end else if (zorro2_space_selected &&
@@ -631,6 +702,103 @@ always @(posedge clk100) begin
 
                             cpu_to_z3_state <= 3'd0;
 
+                            access_state <= ACCESS_IDLE;
+                        end
+                    end
+                endcase
+            end
+
+            ACCESS_CPU_QUICK_INTERRUPT: begin
+                case (quick_interrupt_state)
+                    3'd0: begin
+                        quick_interrupt_requests <= quick_interrupt_pending_requests;
+
+                        if (cpuclk_rising) begin
+                            // Address information is only needed for the poll phase.
+                            aboe_n_out <= 3'b110;
+                        end
+
+                        if (clk90_rising) begin
+                            if (quick_interrupt_poll_count == 2'd1) begin
+                                mtcr_n_out <= 1'b1;
+                                quick_interrupt_grant <= next_quick_interrupt_grant;
+
+                                if (next_quick_interrupt_grant == 5'b00000) begin
+                                    fcs_n_out <= 1'b1;
+                                    mtcr_n_oe <= 1'b0;
+                                    aboe_n_out <= 3'b000;
+                                    quick_interrupt_state <= 3'd0;
+                                    access_state <= ACCESS_CPU_TO_OTHER;
+                                end else begin
+                                    doe_out <= 1'b1;
+                                    dboe_n_out <= 2'b00;
+                                    quick_interrupt_timeout_counter <= 4'd10;
+                                    quick_interrupt_state <= 3'd1;
+                                end
+                            end else begin
+                                quick_interrupt_poll_count <= quick_interrupt_poll_count + 2'd1;
+                            end
+                        end
+                    end
+                    3'd1: begin
+                        if (clk90_rising) begin
+                            mtcr_n_out <= 1'b0;
+                            slave_n_out <= ~quick_interrupt_grant;
+                            slave_n_oe <= quick_interrupt_grant;
+                            eds_n_out <= 4'b1110;
+                            quick_interrupt_state <= 3'd2;
+                        end
+                    end
+                    3'd2: begin
+                        if (!dtack_n_sync[1]) begin
+                            sterm_n_out <= 1'b0;
+                            sterm_n_oe <= 1'b1;
+                            quick_interrupt_state <= 3'd3;
+                        end else if (quick_interrupt_timeout_counter == 4'd0) begin
+                            fcs_n_out <= 1'b1;
+                            mtcr_n_out <= 1'b1;
+                            mtcr_n_oe <= 1'b0;
+                            slave_n_out <= 5'b11111;
+                            slave_n_oe <= 5'b00000;
+                            eds_n_out <= 4'b1111;
+                            dboe_n_out <= 2'b11;
+                            doe_out <= 1'b0;
+                            aboe_n_out <= 3'b000;
+                            quick_interrupt_state <= 3'd0;
+                            access_state <= ACCESS_CPU_TO_OTHER;
+                        end else begin
+                            quick_interrupt_timeout_counter <= quick_interrupt_timeout_counter - 4'd1;
+                        end
+                    end
+                    3'd3: begin
+                        if (clk90_rising && as_n_in) begin
+                            fcs_n_out <= 1'b1;
+                            mtcr_n_out <= 1'b1;
+                            slave_n_out <= 5'b11111;
+                            slave_n_oe <= 5'b00000;
+                            eds_n_out <= 4'b1111;
+                            dboe_n_out <= 2'b11;
+                            sterm_n_out <= 1'b1;
+                            quick_interrupt_state <= 3'd4;
+                        end
+                    end
+                    3'd4: begin
+                        doe_out <= 1'b0;
+
+                        if (cpuclk_falling) begin
+                            mtcr_n_oe <= 1'b0;
+                            sterm_n_oe <= 1'b0;
+                            quick_interrupt_state <= 3'd5;
+                        end
+                    end
+                    3'd5: begin
+                        if (cpuclk_falling) begin
+                            aboe_n_out <= 3'b000;
+                            quick_interrupt_state <= 3'd0;
+                            quick_interrupt_poll_count <= 2'd0;
+                            quick_interrupt_timeout_counter <= 4'd0;
+                            quick_interrupt_requests <= 5'b00000;
+                            quick_interrupt_grant <= 5'b00000;
                             access_state <= ACCESS_IDLE;
                         end
                     end

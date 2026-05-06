@@ -82,12 +82,13 @@ module rebuster_top(
 
     // Multiple Transfer Cycle handshake
     // Bus master asserts MTCR, bus slave responds on MTACK
-    input MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
+    inout MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
     //input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
 
     input WAIT_n,           // Cycle Delay
 
-    input [4:0] SLAVE_n,    // Zx Slave responding to access
+    inout [4:0] SLAVE_n,    // Zx Slave responding to access
+    input [2:0] MS,         // Zx Function Codes
     inout BINT_n,           // Zx Bus Error
     output BERR_n           // Bus Error
 
@@ -102,9 +103,6 @@ module rebuster_top(
     input CBREQ_n,          // Cache Burst Request
     output CBACK_n,         // Cache Burst Acknowledge
 
-    input [2:0] MS,         // Zx Function Codes
-
-    inout MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
     inout MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
 
     input EBCLR_n,          // Bus Request Pending
@@ -309,10 +307,23 @@ assign cinh_n_in = CINH_n;
 assign CINH_n = cinh_n_oe ? cinh_n_out : 1'bz;
 
 wire mtcr_n_in;
+wire mtcr_n_out;
+wire mtcr_n_oe;
 assign mtcr_n_in = MTCR_n;
+assign MTCR_n = mtcr_n_oe ? mtcr_n_out : 1'bz;
 
 wire [4:0] slave_n_in;
+wire [4:0] slave_n_out;
+wire [4:0] slave_n_oe;
 assign slave_n_in = SLAVE_n;
+assign SLAVE_n[4] = slave_n_oe[4] ? slave_n_out[4] : 1'bz;
+assign SLAVE_n[3] = slave_n_oe[3] ? slave_n_out[3] : 1'bz;
+assign SLAVE_n[2] = slave_n_oe[2] ? slave_n_out[2] : 1'bz;
+assign SLAVE_n[1] = slave_n_oe[1] ? slave_n_out[1] : 1'bz;
+assign SLAVE_n[0] = slave_n_oe[0] ? slave_n_out[0] : 1'bz;
+
+wire [2:0] ms_in;
+assign ms_in = MS;
 
 wire bint_n_in;
 wire bint_n_out;
@@ -487,8 +498,14 @@ rebuster_core core(
     .cinh_n_oe(cinh_n_oe),
 
     .mtcr_n_in(mtcr_n_in),
+    .mtcr_n_out(mtcr_n_out),
+    .mtcr_n_oe(mtcr_n_oe),
 
     .slave_n_in(slave_n_in),
+    .slave_n_out(slave_n_out),
+    .slave_n_oe(slave_n_oe),
+
+    .ms_in(ms_in),
 
     .bint_n_in(bint_n_in),
     .bint_n_out(bint_n_out),

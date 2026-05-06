@@ -127,8 +127,14 @@ module rebuster_core(
     output cinh_n_oe,
 
     input mtcr_n_in,
+    output mtcr_n_out,
+    output mtcr_n_oe,
 
     input [4:0] slave_n_in,
+    output [4:0] slave_n_out,
+    output [4:0] slave_n_oe,
+
+    input [2:0] ms_in,
 
     input bint_n_in,
     output bint_n_out,
@@ -318,8 +324,14 @@ access access(
     .cinh_n_oe(cinh_n_oe),
 
     .mtcr_n_in(mtcr_n_in),
+    .mtcr_n_out(mtcr_n_out),
+    .mtcr_n_oe(mtcr_n_oe),
 
     .slave_n_in(slave_n_in),
+    .slave_n_out(slave_n_out),
+    .slave_n_oe(slave_n_oe),
+
+    .ms_in(ms_in),
 
     .bint_n_in(bint_n_in),
     .bint_n_out(bint_n_out),
