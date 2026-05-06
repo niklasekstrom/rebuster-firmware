@@ -142,7 +142,6 @@ module rebuster_core(
 Notes:
 - Doesn't handle EBCLR_n. The pin is likely not used by any Z2 or Z3 boards.
 - Doesn't handle Multiple Transfer Cycles.
-- Doesn't handle Zorro II Read-Modify-Write cycles.
 */
 
 // Synchronize asynchronous signals.

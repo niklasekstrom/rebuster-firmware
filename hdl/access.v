@@ -279,6 +279,8 @@ reg [7:0] terminate_access_counter = 8'd0;
 
 reg [2:0] cpu_to_z2_state = 3'd0;
 reg [2:0] z2_state = 3'd0;
+reg cpu_to_z2_rmw_hold = 1'b0;
+reg cpu_to_z2_rmw_second = 1'b0;
 
 reg [2:0] z3_to_cpu_state = 3'd0;
 
@@ -312,10 +314,19 @@ wire cpu_to_z3_timeout =
     dtack_n_sync[1] &&
     terminate_access_counter == 8'd0;
 
+wire cpu_to_z2_rmw_address_error =
+    access_state == ACCESS_CPU_TO_Z2 &&
+    cpu_to_z2_state == 3'd7 &&
+    cpuclk_falling &&
+    !as_n_in &&
+    address_decode_stable[2] &&
+    !zorro2_space_selected;
+
 wire zorro_error_request =
     (zorro_cycle_state &&
         (!bint_n_in || !bint_n_sync[1] || slave_collision)) ||
-    cpu_to_z3_timeout;
+    cpu_to_z3_timeout ||
+    cpu_to_z2_rmw_address_error;
 
 wire z2_sloppy_lines_idle =
     dtack_n_in && dtack_n_sync[1] &&
@@ -402,6 +413,8 @@ always @(posedge clk100) begin
         z2_state <= 3'd0;
         cpu_to_z2_mem_cycle <= 1'b0;
         cpu_to_z2_io_cycle <= 1'b0;
+        cpu_to_z2_rmw_hold <= 1'b0;
+        cpu_to_z2_rmw_second <= 1'b0;
 
         z3_to_cpu_state <= 3'd0;
 
@@ -465,6 +478,8 @@ always @(posedge clk100) begin
             z2_state <= 3'd0;
             cpu_to_z2_mem_cycle <= 1'b0;
             cpu_to_z2_io_cycle <= 1'b0;
+            cpu_to_z2_rmw_hold <= 1'b0;
+            cpu_to_z2_rmw_second <= 1'b0;
             z3_to_cpu_state <= 3'd0;
             z2_to_cpu_state <= 3'd0;
 
@@ -690,11 +705,48 @@ always @(posedge clk100) begin
                         if (cpuclk_falling) begin
                             aboe_n_out <= 3'b000;
 
+                            if (cpu_to_z2_rmw_hold) begin
+                                cpu_to_z2_state <= 3'd7;
+                                cpu_to_z2_mem_cycle <= 1'b0;
+                                cpu_to_z2_io_cycle <= 1'b0;
+                            end else begin
+                                cpu_to_z2_state <= 3'd0;
+                                cpu_to_z2_mem_cycle <= 1'b0;
+                                cpu_to_z2_io_cycle <= 1'b0;
+                                cpu_to_z2_rmw_second <= 1'b0;
+
+                                access_state <= ACCESS_IDLE;
+                            end
+                        end
+                    end
+                    3'd7: begin
+                        if (rmc_n_in && as_n_in) begin
+                            ccs_n_out <= 1'b1;
+                            doe_out <= 1'b0;
+
                             cpu_to_z2_state <= 3'd0;
-                            cpu_to_z2_mem_cycle <= 1'b0;
-                            cpu_to_z2_io_cycle <= 1'b0;
+                            z2_state <= 3'd0;
+                            cpu_to_z2_rmw_hold <= 1'b0;
+                            cpu_to_z2_rmw_second <= 1'b0;
 
                             access_state <= ACCESS_IDLE;
+                        end else begin
+                            if (cpuclk_rising && !as_n_in) begin
+                                ea_out <= {a_in[3:2], 1'b1};
+                                read_out <= rw_in;
+                                d2p_n_out <= !rw_in;
+                            end
+
+                            if (cpuclk_falling && !as_n_in && address_decode_stable[2] &&
+                                    zorro2_space_selected && wait_n_sync[1] &&
+                                    z2_sloppy_lines_idle && z2_state == 3'd0) begin
+                                fcs_n_out <= 1'b0;
+                                cpu_to_z2_mem_cycle <= !memz2_n_in;
+                                cpu_to_z2_io_cycle <= !ioz2_n_in;
+                                cpu_to_z2_rmw_hold <= 1'b0;
+                                cpu_to_z2_rmw_second <= 1'b1;
+                                cpu_to_z2_state <= 3'd0;
+                            end
                         end
                     end
                 endcase
@@ -757,7 +809,14 @@ always @(posedge clk100) begin
                     end
                     3'd6: begin
                         if (c7m_falling) begin
-                            ccs_n_out <= 1'b1;
+                            if (!rmc_n_in && !cpu_to_z2_rmw_second) begin
+                                ccs_n_out <= 1'b0;
+                                cpu_to_z2_rmw_hold <= 1'b1;
+                            end else begin
+                                ccs_n_out <= 1'b1;
+                                cpu_to_z2_rmw_hold <= 1'b0;
+                                cpu_to_z2_rmw_second <= 1'b0;
+                            end
 
                             eds_n_out <= 4'b1111;
 
