@@ -40,6 +40,9 @@ module rebuster_core(
     input ioz2_n_in,
     input wait_n_in,
 
+    input cbreq_n_in,
+    output cback_n_out,
+
     output [2:0] aboe_n_out,
     output [2:0] aboe_n_oe,
 
@@ -130,6 +133,8 @@ module rebuster_core(
     output mtcr_n_out,
     output mtcr_n_oe,
 
+    input mtack_n_in,
+
     input [4:0] slave_n_in,
     output [4:0] slave_n_out,
     output [4:0] slave_n_oe,
@@ -147,7 +152,6 @@ module rebuster_core(
 /*
 Notes:
 - Doesn't handle EBCLR_n. The pin is likely not used by any Z2 or Z3 boards.
-- Doesn't handle Multiple Transfer Cycles.
 */
 
 // Synchronize asynchronous signals.
@@ -245,6 +249,9 @@ access access(
     .ioz2_n_in(ioz2_n_in),
     .wait_n_in(wait_n_in),
 
+    .cbreq_n_in(cbreq_n_in),
+    .cback_n_out(cback_n_out),
+
     .aboe_n_out(aboe_n_out),
     .aboe_n_oe(aboe_n_oe),
 
@@ -326,6 +333,8 @@ access access(
     .mtcr_n_in(mtcr_n_in),
     .mtcr_n_out(mtcr_n_out),
     .mtcr_n_oe(mtcr_n_oe),
+
+    .mtack_n_in(mtack_n_in),
 
     .slave_n_in(slave_n_in),
     .slave_n_out(slave_n_out),

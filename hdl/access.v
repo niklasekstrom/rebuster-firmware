@@ -19,6 +19,9 @@ module access(
     input ioz2_n_in,
     input wait_n_in,
 
+    input cbreq_n_in,
+    output reg cback_n_out = 1'b1,
+
     output reg [2:0] aboe_n_out = 3'b111,
     output reg [2:0] aboe_n_oe = 3'b000,
 
@@ -101,6 +104,8 @@ module access(
     output reg mtcr_n_out = 1'b1,
     output reg mtcr_n_oe = 1'b0,
 
+    input mtack_n_in,
+
     input [4:0] slave_n_in,
     output reg [4:0] slave_n_out = 5'b11111,
     output reg [4:0] slave_n_oe = 5'b00000,
@@ -131,6 +136,7 @@ reg [2:0] ccs_n_sync = 3'b111;
 reg [2:0] dtack_n_sync = 3'b111;
 reg [2:0] cinh_n_sync = 3'b111;
 reg [2:0] mtcr_n_sync = 3'b111;
+reg [2:0] mtack_n_sync = 3'b111;
 reg [2:0] bint_n_sync = 3'b111;
 reg [2:0] wait_n_sync = 3'b111;
 reg [2:0] any_slave_asserted_sync = 3'b000;
@@ -157,6 +163,7 @@ always @(posedge clk100) begin
     dtack_n_sync <= {dtack_n_sync[1:0], dtack_n_in};
     cinh_n_sync <= {cinh_n_sync[1:0], cinh_n_in};
     mtcr_n_sync <= {mtcr_n_sync[1:0], mtcr_n_in};
+    mtack_n_sync <= {mtack_n_sync[1:0], mtack_n_in};
     bint_n_sync <= {bint_n_sync[1:0], bint_n_in};
     wait_n_sync <= {wait_n_sync[1:0], wait_n_in};
     any_slave_asserted_sync <= {any_slave_asserted_sync[1:0], any_slave_asserted_in};
@@ -281,8 +288,12 @@ reg [2:0] address_decode_stable = 3'b000;
 reg [1:0] sterm_n_delayed = 2'b11;
 reg [1:0] addrz3_n_delayed = 2'b11;
 
-reg [2:0] cpu_to_z3_state = 3'd0;
+reg [3:0] cpu_to_z3_state = 4'd0;
 reg [7:0] terminate_access_counter = 8'd0;
+reg [1:0] cpu_to_z3_mtc_address = 2'b00;
+reg [1:0] cpu_to_z3_mtc_count = 2'd0;
+reg cpu_to_z3_mtc_active = 1'b0;
+reg cpu_to_z3_mtc_continue = 1'b0;
 
 reg [2:0] cpu_to_z2_state = 3'd0;
 reg [2:0] z2_state = 3'd0;
@@ -342,10 +353,20 @@ wire [4:0] next_quick_interrupt_grant =
 
 wire cpu_to_z3_timeout =
     access_state == ACCESS_CPU_TO_Z3 &&
-    cpu_to_z3_state == 3'd3 &&
+    cpu_to_z3_state == 4'd3 &&
     clk90_rising &&
     dtack_n_sync[1] &&
     terminate_access_counter == 8'd0;
+
+wire cpu_to_z3_mtc_supported =
+    !cbreq_n_in && !mtack_n_sync[1];
+
+wire cpu_to_z3_mtc_can_continue =
+    cpu_to_z3_mtc_active &&
+    cpu_to_z3_mtc_supported &&
+    cpu_to_z3_mtc_count != 2'd3;
+
+wire [1:0] next_cpu_to_z3_mtc_address = cpu_to_z3_mtc_address + 2'd1;
 
 wire cpu_to_z2_rmw_address_error =
     access_state == ACCESS_CPU_TO_Z2 &&
@@ -396,6 +417,8 @@ always @(posedge clk100) begin
         bigz_n_out <= 1'b1;
         bigz_n_oe <= 1'b0;
 
+        cback_n_out <= 1'b1;
+
         // CPU control.
         a_out <= 4'b0000;
         siz_out <= 2'b00;
@@ -444,7 +467,11 @@ always @(posedge clk100) begin
         // Internal state.
         access_state <= ACCESS_IDLE;
 
-        cpu_to_z3_state <= 3'd0;
+        cpu_to_z3_state <= 4'd0;
+        cpu_to_z3_mtc_address <= 2'b00;
+        cpu_to_z3_mtc_count <= 2'd0;
+        cpu_to_z3_mtc_active <= 1'b0;
+        cpu_to_z3_mtc_continue <= 1'b0;
 
         terminate_access_counter <= 8'd0;
 
@@ -500,6 +527,7 @@ always @(posedge clk100) begin
             dboe_n_out <= 2'b11;
             db16_n_out <= 1'b1;
             dblt_out <= 1'b0;
+            cback_n_out <= 1'b1;
 
             dsack_n_out <= 2'b11;
             dsack_n_oe <= 2'b00;
@@ -521,7 +549,11 @@ always @(posedge clk100) begin
             ds_n_out <= 1'b1;
             rmc_n_out <= 1'b1;
 
-            cpu_to_z3_state <= 3'd0;
+            cpu_to_z3_state <= 4'd0;
+            cpu_to_z3_mtc_address <= 2'b00;
+            cpu_to_z3_mtc_count <= 2'd0;
+            cpu_to_z3_mtc_active <= 1'b0;
+            cpu_to_z3_mtc_continue <= 1'b0;
             terminate_access_counter <= 8'd0;
             cpu_to_z2_state <= 3'd0;
             z2_state <= 3'd0;
@@ -624,34 +656,50 @@ always @(posedge clk100) begin
                 ea_out[1] <= rmc_n_in;
 
                 case (cpu_to_z3_state)
-                    3'd0: begin
+                    4'd0: begin
                         if (cpuclk_rising) begin
                             // Close A[31:8] latch.
                             aboe_n_out <= 3'b110;
 
-                            cpu_to_z3_state <= 3'd1;
+                            cpu_to_z3_mtc_address <= a_in[3:2];
+                            cpu_to_z3_mtc_count <= 2'd0;
+                            cpu_to_z3_mtc_active <= 1'b0;
+                            cpu_to_z3_mtc_continue <= 1'b0;
+
+                            cpu_to_z3_state <= 4'd1;
                         end
                     end
-                    3'd1: begin
+                    4'd1: begin
                         if (cpuclk_falling) begin
                             // Open D[31:0] latch.
                             doe_out <= 1'b1;
                             dboe_n_out <= 2'b00;
 
-                            cpu_to_z3_state <= 3'd2;
+                            cpu_to_z3_state <= 4'd2;
                         end
                     end
-                    3'd2: begin
+                    4'd2: begin
                         if (cpuclk_rising) begin
                             // Starting driving EDS_n.
                             eds_n_out <= next_z3_eds_n;
 
+                            if (cpu_to_z3_mtc_supported) begin
+                                mtcr_n_out <= 1'b0;
+                                mtcr_n_oe <= 1'b1;
+                                cback_n_out <= 1'b0;
+                                cpu_to_z3_mtc_active <= 1'b1;
+                            end else begin
+                                mtcr_n_out <= 1'b1;
+                                mtcr_n_oe <= 1'b0;
+                                cback_n_out <= 1'b1;
+                            end
+
                             terminate_access_counter <= 8'd40;
 
-                            cpu_to_z3_state <= 3'd3;
+                            cpu_to_z3_state <= 4'd3;
                         end
                     end
-                    3'd3: begin
+                    4'd3: begin
                         if (cpuclk_falling) begin
                             // Start driving cache inhibit.
                             // Must be stable on rising CPUCLK.
@@ -663,27 +711,59 @@ always @(posedge clk100) begin
                             if (!dtack_n_sync[1]) begin
                                 sterm_n_out <= 1'b0;
                                 sterm_n_oe <= 1'b1;
-                                cpu_to_z3_state <= 3'd4;
+
+                                if (cpu_to_z3_mtc_active) begin
+                                    cpu_to_z3_mtc_continue <= cpu_to_z3_mtc_can_continue;
+
+                                    if (!cpu_to_z3_mtc_can_continue) begin
+                                        cback_n_out <= 1'b1;
+                                    end
+
+                                    if (cpu_to_z3_mtc_count != 2'd3) begin
+                                        cpu_to_z3_mtc_count <= cpu_to_z3_mtc_count + 2'd1;
+                                    end
+                                end
+
+                                cpu_to_z3_state <= 4'd4;
                             end else if (terminate_access_counter != 8'd0) begin
                                 terminate_access_counter <= terminate_access_counter - 8'd1;
                             end
                         end
                     end
-                    3'd4: begin
-                        if (clk90_rising && as_n_in) begin
+                    4'd4: begin
+                        if (clk90_rising && cpu_to_z3_mtc_active &&
+                                cpu_to_z3_mtc_continue && !as_n_in) begin
+                            mtcr_n_out <= 1'b1;
+                            eds_n_out <= 4'b1111;
+                            sterm_n_out <= 1'b1;
+                            ciin_n_out <= 1'b1;
+
+                            cpu_to_z3_mtc_address <= next_cpu_to_z3_mtc_address;
+                            ea_out[3:2] <= next_cpu_to_z3_mtc_address;
+
+                            terminate_access_counter <= 8'd40;
+
+                            cpu_to_z3_state <= 4'd7;
+                        end else if (clk90_rising && as_n_in) begin
                             fcs_n_out <= 1'b1;
+                            mtcr_n_out <= 1'b1;
+                            mtcr_n_oe <= 1'b0;
                             eds_n_out <= 4'b1111;
 
                             dboe_n_out <= 2'b11;
+                            cback_n_out <= 1'b1;
 
                             // Negate STERM_n/CIIN_n.
                             sterm_n_out <= 1'b1;
                             ciin_n_out <= 1'b1;
 
-                            cpu_to_z3_state <= 3'd5;
+                            cpu_to_z3_mtc_active <= 1'b0;
+                            cpu_to_z3_mtc_continue <= 1'b0;
+
+                            cpu_to_z3_state <= 4'd5;
                         end
                     end
-                    3'd5: begin
+                    4'd5: begin
                         // DOE is negated 10 ns later than FCS_n to mimic Buster timing.
                         // Likely it would have been okay to negate it at the same time as FCS_n.
                         doe_out <= 1'b0;
@@ -693,16 +773,24 @@ always @(posedge clk100) begin
                             sterm_n_oe <= 1'b0;
                             ciin_n_oe <= 1'b0;
 
-                            cpu_to_z3_state <= 3'd6;
+                            cpu_to_z3_state <= 4'd6;
                         end
                     end
-                    3'd6: begin
+                    4'd6: begin
                         if (cpuclk_falling) begin
                             aboe_n_out <= 3'b000;
 
-                            cpu_to_z3_state <= 3'd0;
+                            cpu_to_z3_state <= 4'd0;
 
                             access_state <= ACCESS_IDLE;
+                        end
+                    end
+                    4'd7: begin
+                        if (clk90_rising) begin
+                            mtcr_n_out <= 1'b0;
+                            eds_n_out <= 4'b0000;
+
+                            cpu_to_z3_state <= 4'd3;
                         end
                     end
                 endcase

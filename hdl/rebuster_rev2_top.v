@@ -71,6 +71,8 @@ module rebuster_top(
     inout STERM_n,          // Synchronous Termination
     inout CIIN_n,           // Cache Inhibit In
     inout RMC_n,            // Read-Modify-Write Cycle
+    input CBREQ_n,          // Cache Burst Request
+    output CBACK_n,         // Cache Burst Acknowledge
 
     // Zorro interface
     // http://amigadev.elowar.com/read/ADCD_2.1/Hardware_Manual_guide/node02C9.html
@@ -89,7 +91,7 @@ module rebuster_top(
     // Bus master asserts MTCR, bus slave responds on MTACK
     input MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
     output MTCR_OD_n,       // MTCR open drain output
-    //input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
+    input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
 
     input WAIT_n,           // Cycle Delay
 
@@ -105,11 +107,6 @@ module rebuster_top(
     input CDAC_n,
 
     input HLT_n,            // Halt, unused
-
-    input CBREQ_n,          // Cache Burst Request
-    output CBACK_n,         // Cache Burst Acknowledge
-
-    inout MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
 
     input EBCLR_n,          // Bus Request Pending
     */
@@ -262,6 +259,11 @@ wire rmc_n_oe;
 assign rmc_n_in = RMC_n;
 assign RMC_n = rmc_n_oe ? rmc_n_out : 1'bz;
 
+wire cbreq_n_in;
+wire cback_n_out;
+assign cbreq_n_in = CBREQ_n;
+assign CBACK_n = cback_n_out;
+
 wire [3:1] ea_in;
 wire [3:1] ea_out;
 wire [3:1] ea_oe;
@@ -320,6 +322,9 @@ wire mtcr_n_out;
 wire mtcr_n_oe;
 assign mtcr_n_in = MTCR_n;
 assign MTCR_OD_n = mtcr_n_oe ? mtcr_n_out : 1'b1;
+
+wire mtack_n_in;
+assign mtack_n_in = MTACK_n;
 
 wire [4:0] slave_n_in;
 wire [4:0] slave_n_out;
@@ -420,6 +425,9 @@ rebuster_core core(
     .ioz2_n_in(ioz2_n_in),
     .wait_n_in(wait_n_in),
 
+    .cbreq_n_in(cbreq_n_in),
+    .cback_n_out(cback_n_out),
+
     .aboe_n_out(aboe_n_out),
     .aboe_n_oe(aboe_n_oe),
 
@@ -509,6 +517,8 @@ rebuster_core core(
     .mtcr_n_in(mtcr_n_in),
     .mtcr_n_out(mtcr_n_out),
     .mtcr_n_oe(mtcr_n_oe),
+
+    .mtack_n_in(mtack_n_in),
 
     .slave_n_in(slave_n_in),
     .slave_n_out(slave_n_out),
