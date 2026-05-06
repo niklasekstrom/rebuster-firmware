@@ -212,11 +212,12 @@ bus_arbitration bus_arbitration(
 
 wire zorro_ctrl_oe = reset_n_sync[2] && own_n_in;
 wire cpu_ctrl_oe = reset_n_sync[2] && !own_n_in;
+wire doe_z2_master_oe;
 
 always @(*) begin
     ea_oe <= {3{zorro_ctrl_oe}};
     read_oe <= zorro_ctrl_oe;
-    doe_oe <= zorro_ctrl_oe;
+    doe_oe <= zorro_ctrl_oe || (reset_n_sync[2] && doe_z2_master_oe);
     fcs_n_oe <= zorro_ctrl_oe;
     ccs_n_oe <= zorro_ctrl_oe;
     eds_n_oe <= {4{zorro_ctrl_oe}};
@@ -318,6 +319,7 @@ access access(
 
     .doe_in(doe_in),
     .doe_out(doe_out),
+    .doe_z2_master_oe(doe_z2_master_oe),
 
     .eds_n_in(eds_n_in),
     .eds_n_out(eds_n_out),

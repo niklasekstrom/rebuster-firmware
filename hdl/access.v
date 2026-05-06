@@ -87,6 +87,7 @@ module access(
 
     input doe_in,
     output reg doe_out = 1'b0,
+    output reg doe_z2_master_oe = 1'b0,
 
     input [3:0] eds_n_in,
     output reg [3:0] eds_n_out = 4'b1111,
@@ -486,6 +487,7 @@ always @(posedge clk100) begin
         fcs_n_out <= 1'b1;
         ccs_n_out <= 1'b1;
         doe_out <= 1'b0;
+        doe_z2_master_oe <= 1'b0;
         eds_n_out <= 4'b1111;
 
         // Zorro access termination.
@@ -566,6 +568,7 @@ always @(posedge clk100) begin
             fcs_n_out <= 1'b1;
             ccs_n_out <= 1'b1;
             doe_out <= 1'b0;
+            doe_z2_master_oe <= 1'b0;
             eds_n_out <= 4'b1111;
 
             dboe_n_out <= 2'b11;
@@ -622,6 +625,7 @@ always @(posedge clk100) begin
             ACCESS_IDLE: begin
                 aboe_n_out <= bm_state == BM_Z2 ? 3'b100 : 3'b000;
                 bigz_n_out <= 1'b1;
+                doe_z2_master_oe <= 1'b0;
 
                 case (bm_state)
                     BM_CPU: begin
@@ -682,6 +686,9 @@ always @(posedge clk100) begin
 
                     BM_Z2: begin
                         if (!ccs_n_sync[1]) begin
+                            doe_out <= 1'b1;
+                            doe_z2_master_oe <= 1'b1;
+
                             if (zorro2_space_selected) begin
                                 access_state <= ACCESS_ZORRO_LOCAL;
                             end else begin
@@ -1231,7 +1238,14 @@ always @(posedge clk100) begin
             ACCESS_ZORRO_LOCAL: begin
                 // This is local to the Zorro bus. No 68030 translation is needed.
                 // Access termination is handled by the external Zorro master/slave.
+                if (bm_state == BM_Z2) begin
+                    doe_out <= 1'b1;
+                    doe_z2_master_oe <= 1'b1;
+                end
+
                 if (fcs_n_sync[1] && ccs_n_sync[1]) begin
+                    doe_out <= 1'b0;
+                    doe_z2_master_oe <= 1'b0;
                     access_state <= ACCESS_IDLE;
                 end
             end
@@ -1325,6 +1339,8 @@ always @(posedge clk100) begin
                             // Stop driving data.
                             dboe_n_out <= 2'b11;
                             db16_n_out <= 1'b1;
+                            doe_out <= 1'b0;
+                            doe_z2_master_oe <= 1'b0;
 
                             z2_to_cpu_state <= 3'd5;
                         end
@@ -1338,6 +1354,8 @@ always @(posedge clk100) begin
 
                             z2_to_cpu_state <= 3'd0;
                             bigz_n_out <= 1'b1;
+                            doe_out <= 1'b0;
+                            doe_z2_master_oe <= 1'b0;
 
                             access_state <= ACCESS_IDLE;
                         end
