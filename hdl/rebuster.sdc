@@ -25,6 +25,7 @@ set sync_inputs [remove_from_collection $sync_inputs [get_ports {C7M}]]
 
 set_false_path -from [get_ports {RESET_n}]
 set_false_path -from [get_ports {C7M}]
+set_false_path -from [get_registers {*reset_n_sync*}] -to [all_outputs]
 
 set_input_delay -clock CPUCLK -max $REBUSTER_INPUT_MAX $sync_inputs
 set_input_delay -clock CPUCLK -min $REBUSTER_INPUT_MIN $sync_inputs
