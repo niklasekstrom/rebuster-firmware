@@ -84,6 +84,8 @@ module rebuster_top(
     input MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
     //input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
 
+    input WAIT_n,           // Cycle Delay
+
     input [4:0] SLAVE_n,    // Zx Slave responding to access
     inout BINT_n,           // Zx Bus Error
     output BERR_n           // Bus Error
@@ -100,8 +102,6 @@ module rebuster_top(
 
     input CBREQ_n,          // Cache Burst Request
     output CBACK_n,         // Cache Burst Acknowledge
-
-    input WAIT_n,           // Cycle Delay
 
     input [2:0] MS,         // Zx Function Codes
 
@@ -166,6 +166,9 @@ assign memz2_n_in = MEMZ2_n;
 
 wire ioz2_n_in;
 assign ioz2_n_in = IOZ2_n;
+
+wire wait_n_in;
+assign wait_n_in = WAIT_n;
 
 wire [2:0] aboe_n_out;
 wire [2:0] aboe_n_oe;
@@ -390,6 +393,7 @@ rebuster_core core(
     .addrz3_n_in(addrz3_n_in),
     .memz2_n_in(memz2_n_in),
     .ioz2_n_in(ioz2_n_in),
+    .wait_n_in(wait_n_in),
 
     .aboe_n_out(aboe_n_out),
     .aboe_n_oe(aboe_n_oe),

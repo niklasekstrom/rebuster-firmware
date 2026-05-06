@@ -17,6 +17,7 @@ module access(
     input addrz3_n_in,
     input memz2_n_in,
     input ioz2_n_in,
+    input wait_n_in,
 
     output reg [2:0] aboe_n_out = 3'b111,
     output reg [2:0] aboe_n_oe = 3'b000,
@@ -120,6 +121,7 @@ reg [2:0] fcs_n_sync = 3'b111;
 reg [2:0] ccs_n_sync = 3'b111;
 reg [2:0] dtack_n_sync = 3'b111;
 reg [2:0] bint_n_sync = 3'b111;
+reg [2:0] wait_n_sync = 3'b111;
 reg [2:0] slave_collision_sync = 3'b000;
 
 reg [2:0] all_eds_n_sync = 3'b111;
@@ -142,6 +144,7 @@ always @(posedge clk100) begin
     ccs_n_sync <= {ccs_n_sync[1:0], ccs_n_in};
     dtack_n_sync <= {dtack_n_sync[1:0], dtack_n_in};
     bint_n_sync <= {bint_n_sync[1:0], bint_n_in};
+    wait_n_sync <= {wait_n_sync[1:0], wait_n_in};
     slave_collision_sync <= {slave_collision_sync[1:0], multiple_slaves_asserted_in};
 
     all_eds_n_sync <= {all_eds_n_sync[1:0], &eds_n_in};
@@ -461,13 +464,13 @@ always @(posedge clk100) begin
                         // Falling edge going from S2 to S3.
                         // This should give address decoder enough time.
                         if (cpuclk_falling && !as_n_in && address_decode_stable[2]) begin
-                            if (!addrz3_n_in) begin
+                            if (!addrz3_n_in && wait_n_sync[1]) begin
                                 fcs_n_out <= 1'b0;
                                 access_state <= ACCESS_CPU_TO_Z3;
-                            end else if (!memz2_n_in || !ioz2_n_in) begin
+                            end else if ((!memz2_n_in || !ioz2_n_in) && wait_n_sync[1]) begin
                                 fcs_n_out <= 1'b0;
                                 access_state <= ACCESS_CPU_TO_Z2;
-                            end else begin
+                            end else if (addrz3_n_in && memz2_n_in && ioz2_n_in) begin
                                 access_state <= ACCESS_CPU_TO_OTHER;
                             end
                         end

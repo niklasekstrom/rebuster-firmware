@@ -38,6 +38,7 @@ module rebuster_core(
     input addrz3_n_in,
     input memz2_n_in,
     input ioz2_n_in,
+    input wait_n_in,
 
     output [2:0] aboe_n_out,
     output [2:0] aboe_n_oe,
@@ -230,6 +231,7 @@ access access(
     .addrz3_n_in(addrz3_n_in),
     .memz2_n_in(memz2_n_in),
     .ioz2_n_in(ioz2_n_in),
+    .wait_n_in(wait_n_in),
 
     .aboe_n_out(aboe_n_out),
     .aboe_n_oe(aboe_n_oe),
