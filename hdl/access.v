@@ -297,6 +297,8 @@ reg [1:0] cpu_to_z3_mtc_address = 2'b00;
 reg [1:0] cpu_to_z3_mtc_count = 2'd0;
 reg cpu_to_z3_mtc_active = 1'b0;
 reg cpu_to_z3_mtc_continue = 1'b0;
+// Sampled at MTCR* assertion; if clear, the current beat is the last one.
+reg cpu_to_z3_mtc_slave_continue = 1'b0;
 
 reg [2:0] cpu_to_z2_state = 3'd0;
 reg [2:0] z2_state = 3'd0;
@@ -366,7 +368,8 @@ wire cpu_to_z3_mtc_supported =
 
 wire cpu_to_z3_mtc_can_continue =
     cpu_to_z3_mtc_active &&
-    cpu_to_z3_mtc_supported &&
+    !cbreq_n_in &&
+    cpu_to_z3_mtc_slave_continue &&
     cpu_to_z3_mtc_count != 2'd3;
 
 wire [1:0] next_cpu_to_z3_mtc_address = cpu_to_z3_mtc_address + 2'd1;
@@ -512,6 +515,7 @@ always @(posedge clk100) begin
         cpu_to_z3_mtc_count <= 2'd0;
         cpu_to_z3_mtc_active <= 1'b0;
         cpu_to_z3_mtc_continue <= 1'b0;
+        cpu_to_z3_mtc_slave_continue <= 1'b0;
 
         terminate_access_counter <= 8'd0;
 
@@ -594,6 +598,7 @@ always @(posedge clk100) begin
             cpu_to_z3_mtc_count <= 2'd0;
             cpu_to_z3_mtc_active <= 1'b0;
             cpu_to_z3_mtc_continue <= 1'b0;
+            cpu_to_z3_mtc_slave_continue <= 1'b0;
             terminate_access_counter <= 8'd0;
             cpu_to_z2_state <= 3'd0;
             z2_state <= 3'd0;
@@ -705,6 +710,7 @@ always @(posedge clk100) begin
                             cpu_to_z3_mtc_count <= 2'd0;
                             cpu_to_z3_mtc_active <= 1'b0;
                             cpu_to_z3_mtc_continue <= 1'b0;
+                            cpu_to_z3_mtc_slave_continue <= 1'b0;
 
                             cpu_to_z3_state <= 4'd1;
                         end
@@ -728,10 +734,12 @@ always @(posedge clk100) begin
                                 mtcr_n_oe <= 1'b1;
                                 cback_n_out <= 1'b0;
                                 cpu_to_z3_mtc_active <= 1'b1;
+                                cpu_to_z3_mtc_slave_continue <= 1'b1;
                             end else begin
                                 mtcr_n_out <= 1'b1;
                                 mtcr_n_oe <= 1'b0;
                                 cback_n_out <= 1'b1;
+                                cpu_to_z3_mtc_slave_continue <= 1'b0;
                             end
 
                             terminate_access_counter <= 8'd40;
@@ -799,6 +807,7 @@ always @(posedge clk100) begin
 
                             cpu_to_z3_mtc_active <= 1'b0;
                             cpu_to_z3_mtc_continue <= 1'b0;
+                            cpu_to_z3_mtc_slave_continue <= 1'b0;
 
                             cpu_to_z3_state <= 4'd5;
                         end
@@ -829,6 +838,7 @@ always @(posedge clk100) begin
                         if (clk90_rising) begin
                             mtcr_n_out <= 1'b0;
                             eds_n_out <= 4'b0000;
+                            cpu_to_z3_mtc_slave_continue <= !mtack_n_sync[1];
 
                             cpu_to_z3_state <= 4'd3;
                         end
