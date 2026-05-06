@@ -123,8 +123,8 @@ reg [2:0] bint_n_sync = 3'b111;
 reg [2:0] slave_collision_sync = 3'b000;
 
 reg [2:0] all_eds_n_sync = 3'b111;
-reg [3:0] all_dsack_n_sync = 4'b1111;
 reg [3:0] both_dsack_asserted_sync = 4'b0000;
+reg [3:0] dsack1_only_sync = 4'b0000;
 
 wire [4:0] slave_asserted_in = ~slave_n_in;
 wire any_slave_asserted_in = |slave_asserted_in;
@@ -145,8 +145,8 @@ always @(posedge clk100) begin
     slave_collision_sync <= {slave_collision_sync[1:0], multiple_slaves_asserted_in};
 
     all_eds_n_sync <= {all_eds_n_sync[1:0], &eds_n_in};
-    all_dsack_n_sync <= {all_dsack_n_sync[2:0], &dsack_n_in};
     both_dsack_asserted_sync <= {both_dsack_asserted_sync[2:0], dsack_n_in == 2'b00};
+    dsack1_only_sync <= {dsack1_only_sync[2:0], dsack_n_in == 2'b01};
 end
 
 wire c7m_rising = c7m_sync[2:1] == 2'b01;
@@ -855,7 +855,7 @@ always @(posedge clk100) begin
                     end
                     3'd3: begin // S4 -> S5
                         if (cpuclk_falling) begin
-                            if (!all_dsack_n_sync[3] || !sterm_n_delayed[1]) begin
+                            if (both_dsack_asserted_sync[3] || !sterm_n_delayed[1]) begin
 
                                 if (!rw_out) begin
                                     as_n_out <= 1'b1;
@@ -866,6 +866,25 @@ always @(posedge clk100) begin
                                 dtack_n_oe <= 1'b1;
 
                                 z2_to_cpu_state <= 3'd4;
+                            end else if (dsack1_only_sync[3]) begin
+                                if (!db16_n_out) begin
+                                    // Single DSACK1* means a 16-bit local port; if the
+                                    // lower-half bridge was selected, switch before DTACK*.
+                                    db16_n_out <= 1'b1;
+                                    dboe_n_out <= 2'b01;
+
+                                    z2_to_cpu_state <= 3'd6;
+                                end else begin
+                                    if (!rw_out) begin
+                                        as_n_out <= 1'b1;
+                                        ds_n_out <= 1'b1;
+                                    end
+
+                                    dtack_n_out <= 1'b0;
+                                    dtack_n_oe <= 1'b1;
+
+                                    z2_to_cpu_state <= 3'd4;
+                                end
                             end
                         end
                     end
@@ -892,6 +911,19 @@ always @(posedge clk100) begin
                             z2_to_cpu_state <= 3'd0;
 
                             access_state <= ACCESS_IDLE;
+                        end
+                    end
+                    3'd6: begin
+                        if (cpuclk_falling) begin
+                            if (!rw_out) begin
+                                as_n_out <= 1'b1;
+                                ds_n_out <= 1'b1;
+                            end
+
+                            dtack_n_out <= 1'b0;
+                            dtack_n_oe <= 1'b1;
+
+                            z2_to_cpu_state <= 3'd4;
                         end
                     end
 
