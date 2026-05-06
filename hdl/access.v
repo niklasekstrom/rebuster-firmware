@@ -852,8 +852,8 @@ always @(posedge clk100) begin
                         quick_interrupt_requests <= quick_interrupt_pending_requests;
 
                         if (cpuclk_rising) begin
-                            // Address information is only needed for the poll phase.
-                            aboe_n_out <= 3'b110;
+                            // Expose A23-A8 and A7-A4/FC during the poll phase.
+                            aboe_n_out <= 3'b100;
                         end
 
                         if (clk90_rising) begin
