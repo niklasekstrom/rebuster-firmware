@@ -67,21 +67,20 @@ always @(posedge clk100) begin
 end
 
 wire c7m_rising = c7m_sync[2:1] == 2'b01;
-wire c7m_falling = c7m_sync[2:1] == 2'b10;
 
 reg [4:0] ebr_n_sync_0 = 5'b11111;
 reg [4:0] ebr_n_sync_1 = 5'b11111;
 
-reg [4:0] ebr_n_falling_0 = 5'b11111;
-reg [4:0] ebr_n_falling_1 = 5'b11111;
+reg [4:0] ebr_n_c7m_0 = 5'b11111;
+reg [4:0] ebr_n_c7m_1 = 5'b11111;
 
 always @(posedge clk100) begin
     ebr_n_sync_1 <= ebr_n_sync_0;
     ebr_n_sync_0 <= ebr_n_in;
 
-    if (c7m_falling) begin
-        ebr_n_falling_1 <= ebr_n_falling_0;
-        ebr_n_falling_0 <= ebr_n_sync_1;
+    if (c7m_rising) begin
+        ebr_n_c7m_1 <= ebr_n_c7m_0;
+        ebr_n_c7m_0 <= ebr_n_sync_1;
     end
 end
 
@@ -105,8 +104,8 @@ reg [2:0] z3_ba_state = 3'd0;
 localparam [3:0] Z3_ATOM_CYCLES = 4'd8;
 localparam [9:0] Z3_GRANT_TIMEOUT = 10'd1000;
 
-// A pulse is if EBR is high, low, high on subsequent falling C7M edges.
-wire [4:0] z3_register_pulse = ebr_n_falling_1 & ~ebr_n_falling_0 & ebr_n_sync_1;
+// A pulse is if EBR is high, low, high on subsequent rising C7M edges.
+wire [4:0] z3_register_pulse = ebr_n_c7m_1 & ~ebr_n_c7m_0 & ebr_n_sync_1;
 
 reg [4:0] z3_requests = 5'b00000;
 reg [4:0] z3_used = 5'b00000;
@@ -117,7 +116,7 @@ reg z3_reschedule_pending = 1'b0;
 reg access_state_idle_prev = 1'b1;
 
 wire [4:0] z3_requests_after_pulses =
-    c7m_falling ? (z3_requests ^ z3_register_pulse) : z3_requests;
+    c7m_rising ? (z3_requests ^ z3_register_pulse) : z3_requests;
 wire [4:0] z3_used_after_pulses = z3_used & z3_requests_after_pulses;
 wire [4:0] z3_unused_requests = z3_requests & ~z3_used;
 wire [4:0] z3_schedule_requests =
@@ -144,8 +143,8 @@ wire z3_cycle_ended =
 
 reg [1:0] z2_ba_state = 2'd0;
 
-// EBR asserted on two consecutive falling C7M edges means Z2 board is requesting.
-wire [4:0] z2_requests = ~ebr_n_falling_1 & ~ebr_n_falling_0;
+// EBR asserted on two consecutive sampled C7M edges means a Z2 request.
+wire [4:0] z2_requests = ~ebr_n_c7m_1 & ~ebr_n_c7m_0;
 reg [4:0] z2_grant = 5'b00000;
 reg [4:0] z2_active_grant = 5'b00000;
 wire [4:0] z2_unserviced_requests = z2_requests & ~z2_active_grant;
@@ -213,7 +212,7 @@ always @(posedge clk100) begin
         ebclr_n_out <= !(|z2_unserviced_requests);
 
         // Handle Z3 register/deregister pulses.
-        if (c7m_falling) begin
+        if (c7m_rising) begin
             z3_requests <= z3_requests_after_pulses;
             z3_used <= z3_used_after_pulses;
         end
