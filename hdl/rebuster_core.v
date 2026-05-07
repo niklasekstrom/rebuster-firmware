@@ -161,6 +161,9 @@ end
 
 // State for bus arbitration.
 wire [1:0] bm_state;
+localparam BM_CPU = 2'd0;
+localparam BM_Z3 = 2'd2;
+localparam BM_Z2 = 2'd3;
 
 // State for access handling.
 wire access_state_idle;
@@ -210,8 +213,8 @@ bus_arbitration bus_arbitration(
     .z3_lock_n_in(ea_in[1])
 );
 
-wire zorro_ctrl_oe = reset_n_sync[2] && own_n_in;
-wire cpu_ctrl_oe = reset_n_sync[2] && !own_n_in;
+wire zorro_ctrl_oe = reset_n_sync[2] && bm_state == BM_CPU;
+wire cpu_ctrl_oe = reset_n_sync[2] && (bm_state == BM_Z3 || bm_state == BM_Z2);
 wire doe_z2_master_oe;
 
 always @(*) begin
