@@ -985,8 +985,8 @@ always @(posedge clk100) begin
                     end
                     3'd3: begin
                         if (cpuclk_rising) begin
-                            dsack_n_out <= 2'b01;
-                            dsack_n_oe <= 2'b11;
+                            dsack_n_out <= 2'b00;
+                            dsack_n_oe <= 2'b10;
 
                             cpu_to_z2_state <= 3'd4;
                         end
@@ -1002,6 +1002,7 @@ always @(posedge clk100) begin
 
                             // Negate DSACK_n/CIIN_n.
                             dsack_n_out <= 2'b11;
+                            dsack_n_oe <= 2'b00;
                             ciin_n_out <= 1'b1;
 
                             cpu_to_z2_state <= 3'd5;

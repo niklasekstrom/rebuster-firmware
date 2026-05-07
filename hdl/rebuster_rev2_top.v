@@ -243,8 +243,8 @@ wire [1:0] dsack_n_in;
 wire [1:0] dsack_n_out;
 wire [1:0] dsack_n_oe;
 assign dsack_n_in = DSACK_n;
-assign DSACK_n[1] = dsack_n_oe[1] ? dsack_n_out[1] : 1'bz;
-assign DSACK_n[0] = dsack_n_oe[0] ? dsack_n_out[0] : 1'bz;
+assign DSACK_n[1] = dsack_n_oe[1] ? 1'b0 : 1'bz;
+assign DSACK_n[0] = dsack_n_oe[0] ? 1'b0 : 1'bz;
 
 wire sterm_n_in;
 wire sterm_n_out;
