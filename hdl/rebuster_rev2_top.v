@@ -39,7 +39,8 @@ module rebuster_top(
     // Zorro bus master control
     input [4:0] EBR_n,      // Zx Bus Request
     output [4:0] EBG_n,     // Zx Bus Grant
-    input EBGACK_n,         // Z2 Bus Grant Acknowledge
+    output EBCLR_n,         // Zx Bus Request Pending
+    inout EBGACK_n,         // Z2 Bus Grant Acknowledge
 
     inout OWN_n,            // Address bus direction, also driven by Z2 master
 
@@ -70,6 +71,9 @@ module rebuster_top(
     inout [1:0] DSACK_n,    // Data Transfer and Size Acknowledge
     inout STERM_n,          // Synchronous Termination
     inout CIIN_n,           // Cache Inhibit In
+    inout RMC_n,            // Read-Modify-Write Cycle
+    input CBREQ_n,          // Cache Burst Request
+    output CBACK_n,         // Cache Burst Acknowledge
 
     // Zorro interface
     // http://amigadev.elowar.com/read/ADCD_2.1/Hardware_Manual_guide/node02C9.html
@@ -87,8 +91,15 @@ module rebuster_top(
     // Multiple Transfer Cycle handshake
     // Bus master asserts MTCR, bus slave responds on MTACK
     input MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
-    output MTCR_OD_n        // MTCR open drain output
-    //input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
+    output MTCR_OD_n,       // MTCR open drain output
+    input MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
+
+    input WAIT_n,           // Cycle Delay
+
+    inout [4:0] SLAVE_n,    // Zx Slave responding to access
+    input [2:0] MS,         // Zx Function Codes
+    inout BINT_n,           // Zx Bus Error
+    output BERR_n           // Bus Error
 
     /*
     Pins that are not used (as of now):
@@ -98,25 +109,6 @@ module rebuster_top(
 
     input HLT_n,            // Halt, unused
 
-    inout RMC_n,            // Read-Modify-Write Cycle
-
-    output BERR_n,          // Bus Error
-
-    input CBREQ_n,          // Cache Burst Request
-    output CBACK_n,         // Cache Burst Acknowledge
-
-    input WAIT_n,           // Cycle Delay
-
-    input [2:0] MS,         // Zx Function Codes
-
-    input [4:0] SLAVE_n,    // Zx Slave responding to access
-
-    input BINT_n,           // Zx Bus Error
-
-    inout MTCR_n,           // Z3 Multiple Transfer Cycle Request / Z2 XRDY
-    inout MTACK_n,          // Z3 Multiple Transfer Cycle Acknowledge
-
-    input EBCLR_n,          // Bus Request Pending
     */
 );
 
@@ -160,8 +152,13 @@ assign EBG_n[2] = ebg_n_oe[2] ? ebg_n_out[2] : 1'bz;
 assign EBG_n[1] = ebg_n_oe[1] ? ebg_n_out[1] : 1'bz;
 assign EBG_n[0] = ebg_n_oe[0] ? ebg_n_out[0] : 1'bz;
 
+wire ebclr_n_out;
+assign EBCLR_n = ebclr_n_out;
+
 wire ebgack_n_in;
+wire ebgack_n_oe;
 assign ebgack_n_in = EBGACK_n;
+assign EBGACK_n = ebgack_n_oe ? 1'b0 : 1'bz;
 
 wire own_n_in;
 wire own_n_out;
@@ -177,6 +174,9 @@ assign memz2_n_in = MEMZ2_n;
 
 wire ioz2_n_in;
 assign ioz2_n_in = IOZ2_n;
+
+wire wait_n_in;
+assign wait_n_in = WAIT_n;
 
 wire [2:0] aboe_n_out;
 wire [2:0] aboe_n_oe;
@@ -243,8 +243,8 @@ wire [1:0] dsack_n_in;
 wire [1:0] dsack_n_out;
 wire [1:0] dsack_n_oe;
 assign dsack_n_in = DSACK_n;
-assign DSACK_n[1] = dsack_n_oe[1] ? dsack_n_out[1] : 1'bz;
-assign DSACK_n[0] = dsack_n_oe[0] ? dsack_n_out[0] : 1'bz;
+assign DSACK_n[1] = dsack_n_oe[1] ? 1'b0 : 1'bz;
+assign DSACK_n[0] = dsack_n_oe[0] ? 1'b0 : 1'bz;
 
 wire sterm_n_in;
 wire sterm_n_out;
@@ -257,6 +257,17 @@ wire ciin_n_out;
 wire ciin_n_oe;
 assign ciin_n_in = CIIN_n;
 assign CIIN_n = ciin_n_oe ? ciin_n_out : 1'bz;
+
+wire rmc_n_in;
+wire rmc_n_out;
+wire rmc_n_oe;
+assign rmc_n_in = RMC_n;
+assign RMC_n = rmc_n_oe ? rmc_n_out : 1'bz;
+
+wire cbreq_n_in;
+wire cback_n_out;
+assign cbreq_n_in = CBREQ_n;
+assign CBACK_n = cback_n_out;
 
 wire [3:1] ea_in;
 wire [3:1] ea_out;
@@ -312,8 +323,36 @@ assign cinh_n_in = CINH_n;
 assign CINH_n = cinh_n_oe ? cinh_n_out : 1'bz;
 
 wire mtcr_n_in;
+wire mtcr_n_out;
+wire mtcr_n_oe;
 assign mtcr_n_in = MTCR_n;
-assign MTCR_OD_n = 1'b1; // Not used yet.
+assign MTCR_OD_n = mtcr_n_oe ? mtcr_n_out : 1'b1;
+
+wire mtack_n_in;
+assign mtack_n_in = MTACK_n;
+
+wire [4:0] slave_n_in;
+wire [4:0] slave_n_out;
+wire [4:0] slave_n_oe;
+assign slave_n_in = SLAVE_n;
+assign SLAVE_n[4] = slave_n_oe[4] ? slave_n_out[4] : 1'bz;
+assign SLAVE_n[3] = slave_n_oe[3] ? slave_n_out[3] : 1'bz;
+assign SLAVE_n[2] = slave_n_oe[2] ? slave_n_out[2] : 1'bz;
+assign SLAVE_n[1] = slave_n_oe[1] ? slave_n_out[1] : 1'bz;
+assign SLAVE_n[0] = slave_n_oe[0] ? slave_n_out[0] : 1'bz;
+
+wire [2:0] ms_in;
+assign ms_in = MS;
+
+wire bint_n_in;
+wire bint_n_out;
+wire bint_n_oe;
+assign bint_n_in = BINT_n;
+assign BINT_n = bint_n_oe ? bint_n_out : 1'bz;
+
+wire berr_n_out;
+wire berr_n_oe;
+assign BERR_n = berr_n_oe ? berr_n_out : 1'bz;
 
 // Logic to synchronize the clk100 clock to CPUCLK.
 // Relies on the source synchronous mode of the PLL for this to work:
@@ -354,6 +393,8 @@ rebuster_core core(
 
     .cpuclk_rising(cpuclk_rising),
     .cpuclk_falling(cpuclk_falling),
+    .clk90_rising(clk90_rising),
+    .clk90_falling(clk90_falling),
 
     .c7m_in(c7m_in),
 
@@ -378,7 +419,10 @@ rebuster_core core(
     .ebg_n_out(ebg_n_out),
     .ebg_n_oe(ebg_n_oe),
 
+    .ebclr_n_out(ebclr_n_out),
+
     .ebgack_n_in(ebgack_n_in),
+    .ebgack_n_oe(ebgack_n_oe),
 
     .own_n_in(own_n_in),
     .own_n_out(own_n_out),
@@ -387,6 +431,10 @@ rebuster_core core(
     .addrz3_n_in(addrz3_n_in),
     .memz2_n_in(memz2_n_in),
     .ioz2_n_in(ioz2_n_in),
+    .wait_n_in(wait_n_in),
+
+    .cbreq_n_in(cbreq_n_in),
+    .cback_n_out(cback_n_out),
 
     .aboe_n_out(aboe_n_out),
     .aboe_n_oe(aboe_n_oe),
@@ -438,6 +486,10 @@ rebuster_core core(
     .ciin_n_out(ciin_n_out),
     .ciin_n_oe(ciin_n_oe),
 
+    .rmc_n_in(rmc_n_in),
+    .rmc_n_out(rmc_n_out),
+    .rmc_n_oe(rmc_n_oe),
+
     .ea_in(ea_in),
     .ea_out(ea_out),
     .ea_oe(ea_oe),
@@ -470,7 +522,24 @@ rebuster_core core(
     .cinh_n_out(cinh_n_out),
     .cinh_n_oe(cinh_n_oe),
 
-    .mtcr_n_in(mtcr_n_in)
+    .mtcr_n_in(mtcr_n_in),
+    .mtcr_n_out(mtcr_n_out),
+    .mtcr_n_oe(mtcr_n_oe),
+
+    .mtack_n_in(mtack_n_in),
+
+    .slave_n_in(slave_n_in),
+    .slave_n_out(slave_n_out),
+    .slave_n_oe(slave_n_oe),
+
+    .ms_in(ms_in),
+
+    .bint_n_in(bint_n_in),
+    .bint_n_out(bint_n_out),
+    .bint_n_oe(bint_n_oe),
+
+    .berr_n_out(berr_n_out),
+    .berr_n_oe(berr_n_oe)
 );
 
 endmodule

@@ -3,6 +3,8 @@ module rebuster_core(
 
     input cpuclk_rising,
     input cpuclk_falling,
+    input clk90_rising,
+    input clk90_falling,
 
     input c7m_in,
 
@@ -27,7 +29,10 @@ module rebuster_core(
     output [4:0] ebg_n_out,
     output [4:0] ebg_n_oe,
 
+    output ebclr_n_out,
+
     input ebgack_n_in,
+    output ebgack_n_oe,
 
     input own_n_in,
     output own_n_out,
@@ -36,6 +41,10 @@ module rebuster_core(
     input addrz3_n_in,
     input memz2_n_in,
     input ioz2_n_in,
+    input wait_n_in,
+
+    input cbreq_n_in,
+    output cback_n_out,
 
     output [2:0] aboe_n_out,
     output [2:0] aboe_n_oe,
@@ -87,6 +96,10 @@ module rebuster_core(
     output ciin_n_out,
     output ciin_n_oe,
 
+    input rmc_n_in,
+    output rmc_n_out,
+    output reg rmc_n_oe,
+
     input [3:1] ea_in,
     output [3:1] ea_out,
     output reg [3:1] ea_oe,
@@ -119,17 +132,25 @@ module rebuster_core(
     output cinh_n_out,
     output cinh_n_oe,
 
-    input mtcr_n_in
-);
+    input mtcr_n_in,
+    output mtcr_n_out,
+    output mtcr_n_oe,
 
-/*
-Notes:
-- Doesn't handle EBCLR_n. The pin is likely not used by any Z2 or Z3 boards.
-- Doesn't handle Multiple Transfer Cycles.
-- No handling of bus error (BERR/BINT).
-- No handling of slave collisions (SLAVE).
-- No handling of Read-Modify-Write cycles (RMC/LOCK).
-*/
+    input mtack_n_in,
+
+    input [4:0] slave_n_in,
+    output [4:0] slave_n_out,
+    output [4:0] slave_n_oe,
+
+    input [2:0] ms_in,
+
+    input bint_n_in,
+    output bint_n_out,
+    output bint_n_oe,
+
+    output berr_n_out,
+    output berr_n_oe
+);
 
 // Synchronize asynchronous signals.
 reg [2:0] reset_n_sync = 3'b000;
@@ -140,6 +161,9 @@ end
 
 // State for bus arbitration.
 wire [1:0] bm_state;
+localparam BM_CPU = 2'd0;
+localparam BM_Z3 = 2'd2;
+localparam BM_Z2 = 2'd3;
 
 // State for access handling.
 wire access_state_idle;
@@ -177,20 +201,26 @@ bus_arbitration bus_arbitration(
     .ebg_n_out(ebg_n_out),
     .ebg_n_oe(ebg_n_oe),
 
+    .ebclr_n_out(ebclr_n_out),
+
     .ebgack_n_in(ebgack_n_in),
+    .ebgack_n_oe(ebgack_n_oe),
 
     .own_n_in(own_n_in),
     .own_n_out(own_n_out),
-    .own_n_oe(own_n_oe)
+    .own_n_oe(own_n_oe),
+
+    .z3_lock_n_in(ea_in[1])
 );
 
-wire zorro_ctrl_oe = reset_n_sync[2] && own_n_in;
-wire cpu_ctrl_oe = reset_n_sync[2] && !own_n_in;
+wire zorro_ctrl_oe = reset_n_sync[2] && bm_state == BM_CPU;
+wire cpu_ctrl_oe = reset_n_sync[2] && (bm_state == BM_Z3 || bm_state == BM_Z2);
+wire doe_z2_master_oe;
 
 always @(*) begin
     ea_oe <= {3{zorro_ctrl_oe}};
     read_oe <= zorro_ctrl_oe;
-    doe_oe <= zorro_ctrl_oe;
+    doe_oe <= zorro_ctrl_oe || (reset_n_sync[2] && doe_z2_master_oe);
     fcs_n_oe <= zorro_ctrl_oe;
     ccs_n_oe <= zorro_ctrl_oe;
     eds_n_oe <= {4{zorro_ctrl_oe}};
@@ -200,6 +230,7 @@ always @(*) begin
     rw_oe <= cpu_ctrl_oe;
     as_n_oe <= cpu_ctrl_oe;
     ds_n_oe <= cpu_ctrl_oe;
+    rmc_n_oe <= cpu_ctrl_oe;
 end
 
 access access(
@@ -207,6 +238,8 @@ access access(
 
     .cpuclk_rising(cpuclk_rising),
     .cpuclk_falling(cpuclk_falling),
+    .clk90_rising(clk90_rising),
+    .clk90_falling(clk90_falling),
 
     .c7m_in(c7m_in),
 
@@ -219,6 +252,10 @@ access access(
     .addrz3_n_in(addrz3_n_in),
     .memz2_n_in(memz2_n_in),
     .ioz2_n_in(ioz2_n_in),
+    .wait_n_in(wait_n_in),
+
+    .cbreq_n_in(cbreq_n_in),
+    .cback_n_out(cback_n_out),
 
     .aboe_n_out(aboe_n_out),
     .aboe_n_oe(aboe_n_oe),
@@ -267,6 +304,9 @@ access access(
     .ciin_n_out(ciin_n_out),
     .ciin_n_oe(ciin_n_oe),
 
+    .rmc_n_in(rmc_n_in),
+    .rmc_n_out(rmc_n_out),
+
     // Zorro control.
     .ea_in(ea_in),
     .ea_out(ea_out),
@@ -282,6 +322,7 @@ access access(
 
     .doe_in(doe_in),
     .doe_out(doe_out),
+    .doe_z2_master_oe(doe_z2_master_oe),
 
     .eds_n_in(eds_n_in),
     .eds_n_out(eds_n_out),
@@ -295,7 +336,24 @@ access access(
     .cinh_n_out(cinh_n_out),
     .cinh_n_oe(cinh_n_oe),
 
-    .mtcr_n_in(mtcr_n_in)
+    .mtcr_n_in(mtcr_n_in),
+    .mtcr_n_out(mtcr_n_out),
+    .mtcr_n_oe(mtcr_n_oe),
+
+    .mtack_n_in(mtack_n_in),
+
+    .slave_n_in(slave_n_in),
+    .slave_n_out(slave_n_out),
+    .slave_n_oe(slave_n_oe),
+
+    .ms_in(ms_in),
+
+    .bint_n_in(bint_n_in),
+    .bint_n_out(bint_n_out),
+    .bint_n_oe(bint_n_oe),
+
+    .berr_n_out(berr_n_out),
+    .berr_n_oe(berr_n_oe)
 );
 
 endmodule

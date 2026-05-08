@@ -128,6 +128,14 @@ set_location_assignment PIN_K2 -to EDS_n[2]
 set_location_assignment PIN_N5 -to EDS_n[1]
 set_location_assignment PIN_N8 -to EDS_n[0]
 set_location_assignment PIN_M10 -to FCS_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to BIGZ_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to CCS_n
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to DOE
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to EDS_n[3]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to EDS_n[2]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to EDS_n[1]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to EDS_n[0]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to FCS_n
 set_location_assignment PIN_C11 -to IOZ2_n
 set_location_assignment PIN_F10 -to MEMZ2_n
 set_location_assignment PIN_G13 -to MS[2]
