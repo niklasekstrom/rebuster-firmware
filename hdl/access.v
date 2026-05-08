@@ -357,13 +357,6 @@ wire [4:0] next_quick_interrupt_grant =
     quick_interrupt_pending_requests[3] ? 5'b01000 :
     quick_interrupt_pending_requests[4] ? 5'b10000 : 5'b00000;
 
-wire cpu_to_z3_timeout =
-    access_state == ACCESS_CPU_TO_Z3 &&
-    cpu_to_z3_state == 4'd3 &&
-    clk90_rising &&
-    dtack_n_sync[1] &&
-    terminate_access_counter == 8'd0;
-
 wire cpu_to_z3_mtc_supported =
     !cbreq_n_in && !mtack_n_sync[1];
 
@@ -422,7 +415,6 @@ wire zorro_master_local_error =
 wire zorro_error_request =
     (zorro_cycle_state &&
         (!bint_n_in || !bint_n_sync[1] || slave_collision)) ||
-    cpu_to_z3_timeout ||
     cpu_to_z2_rmw_address_error ||
     zorro_master_local_error;
 
@@ -765,11 +757,11 @@ always @(posedge clk100) begin
                         end
 
                         if (clk90_rising) begin
-                            if (!dtack_n_sync[1]) begin
+                            if (!dtack_n_sync[1] || terminate_access_counter == 8'd0) begin
                                 sterm_n_out <= 1'b0;
                                 sterm_n_oe <= 1'b1;
 
-                                if (cpu_to_z3_mtc_active) begin
+                                if (cpu_to_z3_mtc_active && !dtack_n_sync[1]) begin
                                     cpu_to_z3_mtc_continue <= cpu_to_z3_mtc_can_continue;
 
                                     if (!cpu_to_z3_mtc_can_continue) begin
@@ -779,6 +771,10 @@ always @(posedge clk100) begin
                                     if (cpu_to_z3_mtc_count != 2'd3) begin
                                         cpu_to_z3_mtc_count <= cpu_to_z3_mtc_count + 2'd1;
                                     end
+                                end else if (cpu_to_z3_mtc_active) begin
+                                    cpu_to_z3_mtc_continue <= 1'b0;
+                                    cpu_to_z3_mtc_slave_continue <= 1'b0;
+                                    cback_n_out <= 1'b1;
                                 end
 
                                 cpu_to_z3_state <= 4'd4;
