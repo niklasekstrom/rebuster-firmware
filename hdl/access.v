@@ -300,6 +300,7 @@ reg cpu_to_z3_mtc_active = 1'b0;
 reg cpu_to_z3_mtc_continue = 1'b0;
 // Sampled at MTCR* assertion; if clear, the current beat is the last one.
 reg cpu_to_z3_mtc_slave_continue = 1'b0;
+reg cpu_to_z3_timeout_ready = 1'b0;
 
 reg [2:0] cpu_to_z2_state = 3'd0;
 reg [2:0] z2_state = 3'd0;
@@ -510,6 +511,7 @@ always @(posedge clk100) begin
         cpu_to_z3_mtc_active <= 1'b0;
         cpu_to_z3_mtc_continue <= 1'b0;
         cpu_to_z3_mtc_slave_continue <= 1'b0;
+        cpu_to_z3_timeout_ready <= 1'b0;
 
         terminate_access_counter <= 8'd0;
 
@@ -595,6 +597,7 @@ always @(posedge clk100) begin
             cpu_to_z3_mtc_active <= 1'b0;
             cpu_to_z3_mtc_continue <= 1'b0;
             cpu_to_z3_mtc_slave_continue <= 1'b0;
+            cpu_to_z3_timeout_ready <= 1'b0;
             terminate_access_counter <= 8'd0;
             cpu_to_z2_state <= 3'd0;
             z2_state <= 3'd0;
@@ -712,6 +715,7 @@ always @(posedge clk100) begin
                             cpu_to_z3_mtc_active <= 1'b0;
                             cpu_to_z3_mtc_continue <= 1'b0;
                             cpu_to_z3_mtc_slave_continue <= 1'b0;
+                            cpu_to_z3_timeout_ready <= 1'b0;
 
                             cpu_to_z3_state <= 4'd1;
                         end
@@ -744,6 +748,7 @@ always @(posedge clk100) begin
                             end
 
                             terminate_access_counter <= 8'd40;
+                            cpu_to_z3_timeout_ready <= 1'b0;
 
                             cpu_to_z3_state <= 4'd3;
                         end
@@ -757,11 +762,11 @@ always @(posedge clk100) begin
                         end
 
                         if (clk90_rising) begin
-                            if (!dtack_n_sync[1] || terminate_access_counter == 8'd0) begin
+                            if (!dtack_n_sync[1]) begin
                                 sterm_n_out <= 1'b0;
                                 sterm_n_oe <= 1'b1;
 
-                                if (cpu_to_z3_mtc_active && !dtack_n_sync[1]) begin
+                                if (cpu_to_z3_mtc_active) begin
                                     cpu_to_z3_mtc_continue <= cpu_to_z3_mtc_can_continue;
 
                                     if (!cpu_to_z3_mtc_can_continue) begin
@@ -771,15 +776,30 @@ always @(posedge clk100) begin
                                     if (cpu_to_z3_mtc_count != 2'd3) begin
                                         cpu_to_z3_mtc_count <= cpu_to_z3_mtc_count + 2'd1;
                                     end
-                                end else if (cpu_to_z3_mtc_active) begin
+                                end
+
+                                cpu_to_z3_timeout_ready <= 1'b0;
+
+                                cpu_to_z3_state <= 4'd4;
+                            end else if (cpu_to_z3_timeout_ready) begin
+                                sterm_n_out <= 1'b0;
+                                sterm_n_oe <= 1'b1;
+
+                                if (cpu_to_z3_mtc_active) begin
                                     cpu_to_z3_mtc_continue <= 1'b0;
                                     cpu_to_z3_mtc_slave_continue <= 1'b0;
                                     cback_n_out <= 1'b1;
                                 end
 
+                                cpu_to_z3_timeout_ready <= 1'b0;
+
                                 cpu_to_z3_state <= 4'd4;
                             end else if (terminate_access_counter != 8'd0) begin
                                 terminate_access_counter <= terminate_access_counter - 8'd1;
+
+                                if (terminate_access_counter == 8'd1) begin
+                                    cpu_to_z3_timeout_ready <= 1'b1;
+                                end
                             end
                         end
                     end
@@ -795,6 +815,7 @@ always @(posedge clk100) begin
                             ea_out[3:2] <= next_cpu_to_z3_mtc_address;
 
                             terminate_access_counter <= 8'd40;
+                            cpu_to_z3_timeout_ready <= 1'b0;
 
                             cpu_to_z3_state <= 4'd7;
                         end else if (clk90_rising && as_n_in) begin
